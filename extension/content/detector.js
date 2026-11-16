@@ -19,7 +19,7 @@
   const FG = globalThis.FormGuard;
   const { Dom, Tooltip, RuleEngine, Sanitizer, FileAssist } = FG;
 
-  const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false };
+  const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en' };
   let settings = { ...DEFAULTS };
 
   const touched = new WeakSet();   // fields the user has interacted with
@@ -134,12 +134,13 @@
 
       const ctx = buildContext(el, det.errorText);
       if (det.formLevel) ctx.formLevel = true;
-      const sig = JSON.stringify([det.reasons, det.errorText, ctx.valueLength, ctx.digitCount, ctx.validity]);
+      ctx.lang = settings.lang;   // wording language only — never part of the AI payload (sanitiser whitelist)
+      const sig = JSON.stringify([det.reasons, det.errorText, ctx.valueLength, ctx.digitCount, ctx.validity, ctx.lang]);
       if (st.dismissedSig === sig) continue;                        // user closed it
       if (st.editing && document.activeElement === el) continue;    // user is fixing it right now
 
       const s = RuleEngine.explain(ctx);
-      if (st.aiSig === sig && st.aiResult) Object.assign(s, st.aiResult);
+      if (st.aiSig === sig && st.aiResult) applyAI(s, st.aiResult);
       Tooltip.show(el, s, { signature: sig + (st.aiResult ? ':ai' : ''), compact: !!det.formLevel, onDismiss: () => { st.dismissedSig = sig; } });
 
       audit({
@@ -174,7 +175,14 @@
     }
     if (!el.isConnected || st.aiSig !== sig) return;
     st.aiResult = { summary: explanation, source: 'ai:server' };
-    Tooltip.show(el, { ...localSuggestion, ...st.aiResult }, { signature: sig + ':ai', onDismiss: () => { st.dismissedSig = sig; } });
+    Tooltip.show(el, applyAI({ ...localSuggestion }, st.aiResult), { signature: sig + ':ai', onDismiss: () => { st.dismissedSig = sig; } });
+  }
+
+  /** Put the AI explanation in the big "main" line of the card (the simple card only shows `lines`). */
+  function applyAI(s, ai) {
+    Object.assign(s, ai);
+    if (s.lines) s.lines = [{ kind: 'main', text: ai.summary }, ...s.lines.filter((l) => l.kind === 'action')];
+    return s;
   }
 
   // ---------------- scheduling (debounce, no polling) --------------------------------

@@ -17,11 +17,11 @@
     :host { all: initial; }
     .tip {
       position: absolute; z-index: 2147483647; box-sizing: border-box;
-      max-width: 340px; min-width: 220px; padding: 10px 12px 8px;
+      max-width: 360px; min-width: 220px; padding: 10px 12px 8px;
       background: #fffdf5; color: #1f2328; border: 1px solid #e3b341;
       border-left: 4px solid #d4a72c; border-radius: 8px;
       box-shadow: 0 6px 20px rgba(0,0,0,.18);
-      font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Nirmala UI", Roboto, sans-serif;
       pointer-events: auto; animation: fade .12s ease-out;
     }
     .tip.file { border-color: #54aeff; border-left-color: #0969da; background: #f6fbff; }
@@ -37,6 +37,13 @@
              line-height: 1; color: #57606a; padding: 0 2px; }
     .close:hover { color: #1f2328; }
     .summary { margin: 0 0 4px; }
+    /* Simple card: big main sentence, highlighted "do this" lines, help hidden until asked */
+    .line { margin: 0 0 6px; }
+    .line.main { font-size: 15px; font-weight: 600; }
+    .line.action { font-size: 14px; font-weight: 600; padding: 6px 8px; border-radius: 6px; background: rgba(212,167,44,.18); }
+    .more[hidden] { display: none; }
+    .morebtn { border: 0; background: none; padding: 4px 0; cursor: pointer; font: 600 13px system-ui, sans-serif;
+               color: #0969da; text-decoration: underline; }
     ul { margin: 4px 0; padding-left: 18px; }
     li { margin: 2px 0; }
     .example { margin: 4px 0; color: #57606a; }
@@ -69,6 +76,7 @@
       .tip.file { background: #0d1f33; border-color: #1f6feb; }
       .example { color: #9da7b3; } .example code { background: #30363d; }
       .close { color: #9da7b3; } .foot { color: #9da7b3; }
+      .morebtn { color: #58a6ff; }
     }
   `;
 
@@ -122,8 +130,8 @@
       el('span', 'chip', s.headline ? `${title}: ${s.headline}` : title));
     head.title = 'Click to pin / unpin the full explanation';
     const close = el('button', 'close', '×');
-    close.title = 'Dismiss';
-    close.setAttribute('aria-label', 'Dismiss suggestion');
+    close.title = (s.ui && s.ui.dismiss) || 'Dismiss';
+    close.setAttribute('aria-label', (s.ui && s.ui.dismiss) || 'Dismiss suggestion');
     close.addEventListener('click', (e) => { e.stopPropagation(); hide(field); if (opts.onDismiss) opts.onDismiss(); });
     head.append(close);
     box.append(head);
@@ -134,19 +142,32 @@
     box.addEventListener('mouseenter', () => { entry.hover = true; layout(); });
     box.addEventListener('mouseleave', () => { entry.hover = false; layout(); });
 
+    const ui = s.ui || {};
+    const simple = Array.isArray(s.lines) && s.lines.length > 0;
     const body = el('div', 'body');
     box.append(body);
-    if (s.summary) body.append(el('p', 'summary', s.summary));
+    // Simple cards (field suggestions): big "what to do" lines first, everything else behind "More help".
+    // Plain cards (file assistant): show everything at once, as before.
+    const more = simple ? el('div', 'more') : body;
+    if (simple) {
+      const lines = el('div', 'lines');
+      s.lines.forEach((l) => lines.append(el('p', 'line ' + l.kind, l.text)));
+      body.append(lines);
+    }
+    const addExample = (parent) => {
+      if (!s.example) return;
+      const ex = el('div', 'example', (ui.example || 'Example') + ': ');
+      ex.append(el('code', null, s.example));
+      parent.append(ex);
+    };
+    if (simple) addExample(body);
+    if (s.summary) more.append(el('p', 'summary', s.summary));
     if (s.points && s.points.length) {
       const ul = el('ul');
       s.points.forEach((p) => ul.append(el('li', null, p)));
-      body.append(ul);
+      more.append(ul);
     }
-    if (s.example) {
-      const ex = el('div', 'example', 'Example: ');
-      ex.append(el('code', null, s.example));
-      body.append(ex);
-    }
+    if (!simple) addExample(body);
     if (opts.actions && opts.actions.length) {
       const bar = el('div', 'actions');
       const status = el('div', 'status');
@@ -163,9 +184,23 @@
     }
     const foot = el('div', 'foot');
     const isAI = String(s.source || '').startsWith('ai');
-    foot.append(el('span', 'badge' + (isAI ? ' ai' : ''), isAI ? 'AI fallback (sanitised metadata)' : 'On-device'));
-    foot.append(el('span', null, 'FormGuard · ' + (s.source || 'rule')));
-    body.append(foot);
+    if (simple && !isAI) {
+      foot.append(el('span', null, '✓ ' + (ui.onDevice || 'Checked on your device — nothing was sent anywhere.')));
+    } else {
+      foot.append(el('span', 'badge' + (isAI ? ' ai' : ''), isAI ? 'AI fallback (sanitised metadata)' : 'On-device'));
+      foot.append(el('span', null, 'FormGuard · ' + (s.source || 'rule')));
+    }
+    // AI use must always be visible; the reassuring on-device note can stay in "More help"
+    (simple && !isAI ? more : body).append(foot);
+    if (simple && more.childNodes.length) {
+      more.hidden = true;
+      const moreBtn = el('button', 'morebtn', ui.more || 'More help');
+      moreBtn.addEventListener('click', () => {
+        more.hidden = !more.hidden;
+        moreBtn.textContent = more.hidden ? (ui.more || 'More help') : (ui.less || 'Hide help');
+      });
+      body.append(moreBtn, more);
+    }
 
     if (existing) { entry.pinned = existing.pinned; entry.hover = existing.hover; }
     shadow.appendChild(box);

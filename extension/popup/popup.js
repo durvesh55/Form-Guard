@@ -8,10 +8,10 @@
 'use strict';
 
 const CONTENT_FILES = [
-  'lib/sanitizer.js', 'lib/rules.js', 'lib/regexToEnglish.js', 'lib/ruleEngine.js',
+  'lib/sanitizer.js', 'lib/rules.js', 'lib/rulesText.js', 'lib/i18n.js', 'lib/regexToEnglish.js', 'lib/ruleEngine.js',
   'content/dom.js', 'content/tooltip.js', 'content/imageResize.js', 'content/fileAssist.js', 'content/detector.js',
 ];
-const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, serverUrl: 'http://localhost:3000/explain' };
+const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', serverUrl: 'http://localhost:3000/explain' };
 const $ = (id) => document.getElementById(id);
 let tab = null;
 
@@ -66,12 +66,15 @@ $('rescan').addEventListener('click', async () => {
 async function loadSettings() {
   const s = await chrome.storage.local.get(DEFAULTS);
   $('tooltips').checked = s.tooltips;
+  $('lang').value = s.lang;
   $('aiEnabled').checked = s.aiEnabled;
   $('serverUrl').value = s.serverUrl;
   $('aiBox').hidden = !s.aiEnabled;
   return s;
 }
 $('tooltips').addEventListener('change', (e) => chrome.storage.local.set({ tooltips: e.target.checked }));
+// Tooltips on open pages re-render in the new language right away (detector listens for storage changes)
+$('lang').addEventListener('change', (e) => chrome.storage.local.set({ lang: e.target.value }));
 $('aiEnabled').addEventListener('change', (e) => {
   $('aiBox').hidden = !e.target.checked;
   chrome.storage.local.set({ aiEnabled: e.target.checked });

@@ -3,15 +3,20 @@
  *
  * Input  (context object, built by the content script — contains NO typed value):
  *   { label, nameAttr, placeholder, type, pattern, minLength, maxLength,
- *     minAttr, maxAttr, required, autocomplete, errorText, valueLength, validity }
+ *     minAttr, maxAttr, required, autocomplete, errorText, valueLength, digitCount,
+ *     validity, lang ('en' | 'hi'), formLevel }
  *
  * Output (suggestion object):
- *   { title, summary, points[], example, source, ruleId, confidence, needsAI }
+ *   title, headline        -> the one-line chip
+ *   lines[]                -> the BIG part of the card: { kind: 'main' | 'action', text }
+ *                             main = what the field needs, action = what to do now
+ *   summary, points[]      -> the collapsed "More help" part
+ *   example, source, ruleId, confidence, needsAI, ui (button labels), lang
  *
  * Steps:  1. find the best matching rule (keyword scoring)
- *         2. translate the pattern attribute (regexToEnglish)
- *         3. compare value LENGTH with the expected length
- *         4. add native validity hints (required, range, type)
+ *         2. count the typed length against the expected length (digits only for digit fields)
+ *         3. add native validity hints (required, range, type)
+ *         4. write everything in the chosen language (lib/i18n.js, lib/rulesText.js)
  */
 (function (root) {
   'use strict';
@@ -19,6 +24,8 @@
   const FG = root.FormGuard || {};
   const RULES = FG.RULES || (typeof require === 'function' ? require('./rules.js').RULES : []);
   const regexToEnglish = FG.regexToEnglish || (typeof require === 'function' ? require('./regexToEnglish.js').regexToEnglish : null);
+  const RULE_TEXT = FG.RULE_TEXT || (typeof require === 'function' ? require('./rulesText.js').RULE_TEXT : {});
+  const I18N = FG.I18n || (typeof require === 'function' ? require('./i18n.js') : null);
 
   /** "txtPinCode" / "pin_code" / "PIN-Code" -> "txt pin code" */
   function normalise(s) {
@@ -63,156 +70,185 @@
     return bestScore >= 3 ? { rule: best, score: bestScore } : null;
   }
 
-  const KIND_NOUN = { digits: 'digits', letters: 'letters', alnum: 'characters', chars: 'characters' };
   const VAGUE = /^(invalid|error|wrong|incorrect|not valid|please check|invalid input|invalid value|invalid format|field is invalid)\b/i;
+  const truncate = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+  const dedupe = (arr) => [...new Set(arr.filter(Boolean))];
+  const line = (kind, text) => ({ kind, text });
 
-  /** "You entered 4 characters — exactly 6 digits are needed (2 more)." */
-  function lengthFeedback(len, min, max, noun, typedText) {
+  /** Wording for one rule in the chosen language; missing Hindi parts fall back to English. */
+  function ruleText(rule, lang) {
+    const x = RULE_TEXT[rule.id] || {};
+    const h = lang === 'hi' ? x.hi : null;
+    return {
+      title: (h && h.title) || rule.title,
+      simple: (h && h.simple) || x.simple || rule.explain,
+      explain: h ? '' : rule.explain,              // Hindi: the simple line already says it
+      tips: h ? (h.tips || []) : (rule.tips || []),
+      example: (h && h.example) || rule.example,
+    };
+  }
+
+  /** "You typed 4. Add 2 more numbers."  (counts the typed length against min..max) */
+  function lengthSimple(lang, len, min, max, kind) {
     if (min == null && max == null) return null;
     min = min ?? 0; max = max ?? Infinity;
-    const need = min === max ? `exactly ${min} ${noun}` : max === Infinity ? `at least ${min} ${noun}` : `${min}–${max} ${noun}`;
-    const typed = typedText || `You entered ${len} character${len === 1 ? '' : 's'}`;
-    const unit = (k) => (k === 1 ? noun.replace(/s$/, '') : noun);
-    if (len < min) return { ok: false, text: `${typed} — ${need} needed (${min - len} more).`, short: `${min - len} more ${unit(min - len)} needed` };
-    if (len > max) return { ok: false, text: `${typed} — ${need} allowed (${len - max} too many; remove spaces or extra characters).`, short: `${len - max} character${len - max === 1 ? '' : 's'} too many` };
-    return { ok: true, text: `Length is fine (${len}). The problem is probably a wrong character or format.` };
+    if (len < min) {
+      const n = min - len, noun = I18N.noun(lang, kind, n);
+      return { ok: false, text: I18N.t(lang, 'short', { len, n, noun }), head: I18N.t(lang, 'shortHead', { n, noun }) };
+    }
+    if (len > max) {
+      const n = len - max, noun = I18N.noun(lang, kind, n);
+      return { ok: false, text: I18N.t(lang, 'long', { len, n, noun }), head: I18N.t(lang, 'longHead', { n, noun }) };
+    }
+    // Right count: only worth saying for exact-length fields (PIN, Aadhaar…), where it means "a wrong character"
+    return { ok: true, text: min === max && min > 0 ? I18N.t(lang, 'lenOk') : '' };
+  }
+
+  function genericSummary(ctx, lang) {
+    const T = (k, p) => I18N.t(lang, k, p);
+    const t = ctx.type;
+    if (t === 'email') return T('gEmail');
+    if (t === 'url') return T('gUrl');
+    if (t === 'number') return T('gNumber', { range: !!(ctx.minAttr || ctx.maxAttr), min: ctx.minAttr ?? '…', max: ctx.maxAttr ?? '…' });
+    if (t === 'tel') return T('gTel');
+    if (t === 'date') return T('gDate');
+    if (t === 'checkbox') return T('gCheckbox');
+    if (t === 'select') return T('gSelect');
+    if (t === 'file') return T('gFile');
+    if (t === 'radio') return T('gRadio');
+    if (ctx.minLength != null || ctx.maxLength != null) return T('gLength');
+    return '';
   }
 
   /** A banner for the whole form (not one field): explain from the site's own words, on-device. */
-  function explainFormError(ctx) {
+  function explainFormError(ctx, lang) {
+    const T = (k, p) => I18N.t(lang, k, p);
     const e = String(ctx.errorText || '');
-    const points = [];
     const signIn = /(user ?name|user ?id|password|login|log in|sign ?in|credential)/i.test(e);
-    if (/(incorrect|invalid|wrong|not match|mismatch)/i.test(e) && signIn) {
-      points.push('The site checked what you typed and rejected the sign-in — the format may be fine, but the username or password is not the one on record.');
-      points.push('Check Caps Lock, and that you are using your username (not email or mobile) unless the site says so.');
-      points.push('Re-type the password slowly — use the eye icon to reveal it and make sure it is what you meant.');
-    }
-    if (/attempts?/i.test(e)) points.push('Be careful: too many wrong attempts can lock the account. Stop and use "Forgot password / account details" instead of guessing.');
-    if (/captcha/i.test(e)) points.push('The captcha was wrong or expired — reload it and type the new characters exactly.');
-    if (/otp/i.test(e)) points.push('The OTP is wrong or expired — request a fresh one and use it within its time limit.');
-    if (/(expired|session)/i.test(e)) points.push('Your session may have timed out — refresh the page and try again.');
-    if (/(locked|blocked)/i.test(e)) points.push('The account looks locked — wait for the lock time or use the site\'s reset option.');
-    if (!points.length) points.push('This message is about the whole form, not one field. Re-read it and check the fields below it.');
+    const rejected = /(incorrect|invalid|wrong|not match|mismatch)/i.test(e) && signIn;
+
+    // what to do, most important first; only the first one is shown big, the rest go to "More help"
+    const acts = [];
+    if (/attempts?/i.test(e)) acts.push(T('fsAttempts'));
+    if (/captcha/i.test(e)) acts.push(T('fsCaptcha'));
+    if (/otp/i.test(e)) acts.push(T('fsOtp'));
+    if (/(expired|session)/i.test(e)) acts.push(T('fsExpired'));
+    if (/(locked|blocked)/i.test(e)) acts.push(T('fsLocked'));
+    if (rejected) acts.push(T('fsCaps'), T('fsRetype'));
+    if (!acts.length) acts.push(T('fsNone'));
+
     return {
-      title: signIn ? 'Sign-in problem' : 'Problem with this form',
-      summary: `The site says: "${e.slice(0, 160)}"`,
-      headline: signIn ? 'username or password rejected — hover for help' : 'the site rejected this form — hover for help',
-      points: dedupe(points), example: '', source: 'form-level', ruleId: 'form-level', confidence: 'medium', needsAI: false,
+      title: signIn ? T('fsTitleSignIn') : T('fsTitleForm'),
+      headline: signIn ? T('fsHeadSignIn') : T('fsHeadForm'),
+      lines: [line('main', rejected ? T('fsMain') : T('fsSays', { text: e.slice(0, 160) })), line('action', acts[0])],
+      summary: rejected ? T('fsSays', { text: e.slice(0, 160) }) : '',
+      points: dedupe([rejected ? T('fsRejected') : '', ...acts.slice(1)]),
+      example: '', source: 'form-level', ruleId: 'form-level', confidence: 'medium', needsAI: false,
+      ui: I18N.ui(lang), lang,
     };
   }
 
   function explain(ctx) {
-    if (ctx.formLevel) return explainFormError(ctx);
-    const points = [];
+    const lang = ctx.lang === 'hi' ? 'hi' : 'en';
+    const T = (k, p) => I18N.t(lang, k, p);
+    if (ctx.formLevel) return explainFormError(ctx, lang);
+
+    const details = [];                // collapsed "More help"
+    const actions = [];                // what to do now (shown big)
+    let countOk = '';                  // "the count is right" — only used when nothing else is wrong
     let headline = '';                 // one-line version shown in the compact chip
     const v = ctx.validity || {};
     const len = ctx.valueLength || 0;
     const match = findRule(ctx);
     const rule = match && match.rule;
+    const rt = rule ? ruleText(rule, lang) : null;
     const pat = ctx.pattern && regexToEnglish ? regexToEnglish(ctx.pattern) : null;
+    const patOk = !!(pat && pat.understood);
     let source = rule ? `rule:${rule.id}` : pat ? 'pattern' : 'generic';
-    let confidence = rule ? (match.score >= 6 ? 'high' : 'medium') : pat && pat.understood ? 'high' : 'low';
+    let confidence = rule ? (match.score >= 6 ? 'high' : 'medium') : patOk ? 'high' : 'low';
 
     // 1. Empty required field
     if (v.valueMissing || (ctx.required && len === 0)) {
-      points.push('This field is required, but it is empty.');
-      headline = 'required, but empty';
+      actions.push(T('requiredAction'));
+      headline = T('requiredHead');
     }
 
-    // 2. Pattern in plain English
-    if (pat) points.push(`Format required: ${pat.text}.`);
-
-    // 3. Length feedback (attribute > pattern > rule)
+    // 2. Length (attribute > pattern > rule)
     if (len > 0 && ctx.type !== 'date' && ctx.type !== 'file' && ctx.type !== 'select') {
       const pick = (a, b, c) => (a != null ? a : b != null ? b : c);
-      const patMin = pat && pat.understood ? pat.minLength : null;
-      const patMax = pat && pat.understood && pat.maxLength !== Infinity ? pat.maxLength : null;
+      const patMin = patOk ? pat.minLength : null;
+      const patMax = patOk && pat.maxLength !== Infinity ? pat.maxLength : null;
       const min = pick(ctx.minLength, patMin, rule && rule.expect.min);
       const max = pick(ctx.maxLength, patMax, rule && rule.expect.max);
-      const noun = rule ? KIND_NOUN[rule.expect.kind] : 'characters';
+      const kind = rule ? rule.expect.kind : 'chars';
       // Digit fields (Aadhaar "1234 5678 9012", phone "98765-43210"): spaces and dashes are not
       // digits, so count digits only — otherwise "8 digits + 1 space" reads as 9 and the hint is off by one.
-      let effLen = len, typedText;
-      const sep = noun === 'digits' && Number.isFinite(ctx.digitCount) ? len - ctx.digitCount : 0;
-      if (sep > 0) {
-        effLen = ctx.digitCount;
-        typedText = `You entered ${effLen} digit${effLen === 1 ? '' : 's'} plus ${sep} space${sep === 1 ? '' : 's'} or separator${sep === 1 ? '' : 's'}`;
-      }
-      const fb = lengthFeedback(effLen, min, max, noun, typedText);
-      if (fb) points.push(fb.text);
-      if (sep > 0) points.push('Many sites accept digits only — try removing the spaces or dashes.');
-      if (fb && !fb.ok && !headline) headline = fb.short;
+      let effLen = len, sep = 0;
+      if (kind === 'digits' && Number.isFinite(ctx.digitCount) && len > ctx.digitCount) { sep = len - ctx.digitCount; effLen = ctx.digitCount; }
+      const fb = lengthSimple(lang, effLen, min, max, kind);
+      if (fb && !fb.ok) actions.push(fb.text);
+      else if (fb && fb.text) countOk = fb.text;
+      if (fb && !fb.ok && !headline) headline = fb.head;
+      if (sep > 0) actions.push(T('sep'));
     }
 
-    // 4. Native HTML5 validity flags (booleans only — never the value)
-    if (v.typeMismatch) points.push(ctx.type === 'url' ? 'This must be a full web address starting with https://' : 'This does not look like a valid email address.');
-    if (v.rangeUnderflow) points.push(`The value must be ${ctx.type === 'date' ? 'on or after' : 'at least'} ${ctx.minAttr}.`);
-    if (v.rangeOverflow) points.push(`The value must be ${ctx.type === 'date' ? 'on or before' : 'at most'} ${ctx.maxAttr}.`);
-    if (v.stepMismatch) points.push('The number must be a whole number (or a valid step value) — no extra decimals.');
-    if (v.badInput) points.push('The browser could not read this value — for example letters typed into a number field.');
-    if (!headline && v.typeMismatch) headline = ctx.type === 'url' ? 'not a valid web address' : 'not a valid email address';
-    if (!headline && v.rangeUnderflow) headline = `must be ${ctx.type === 'date' ? 'on/after' : 'at least'} ${ctx.minAttr}`;
-    if (!headline && v.rangeOverflow) headline = `must be ${ctx.type === 'date' ? 'on/before' : 'at most'} ${ctx.maxAttr}`;
-    if (!headline && pat && pat.understood) headline = `needs ${pat.text}`;
+    // 3. Native HTML5 validity flags (booleans only — never the value)
+    const isDate = ctx.type === 'date';
+    if (v.typeMismatch) {
+      actions.push(ctx.type === 'url' ? T('url') : T('email'));
+      if (!headline) headline = T(ctx.type === 'url' ? 'urlHead' : 'emailHead');
+    }
+    if (v.rangeUnderflow) {
+      actions.push(T(isDate ? 'underDate' : 'underNum', { v: ctx.minAttr }));
+      if (!headline) headline = T('underHead', { v: ctx.minAttr, date: isDate });
+    }
+    if (v.rangeOverflow) {
+      actions.push(T(isDate ? 'overDate' : 'overNum', { v: ctx.maxAttr }));
+      if (!headline) headline = T('overHead', { v: ctx.maxAttr, date: isDate });
+    }
+    if (v.stepMismatch) actions.push(T('step'));
+    if (v.badInput) actions.push(T('badInput'));
+    if (countOk && !actions.length) actions.push(countOk);
 
-    // 5. Rule explanation + tips
-    let summary;
+    // 4. What the field needs (the "main" line) + the longer explanation for "More help"
+    let main, summary = '';
     if (rule) {
-      summary = rule.explain;
-      (rule.tips || []).slice(0, 2).forEach((t) => points.push(t));
+      main = rt.simple;
+      if (rt.explain && rt.explain !== main) summary = rt.explain;
+      if (pat && patOk) { const d = T('patternDetail', { text: pat.text }); if (d) details.push(d); }
+      rt.tips.slice(0, 2).forEach((x) => details.push(x));
     } else if (pat) {
-      summary = `This field must contain ${pat.text}.`;
+      main = T('patternNeeds', { text: pat.text });
     } else {
-      summary = genericSummary(ctx);
-      if (!summary) {
-        summary = 'This field has an error, but the website did not explain why.';
-        points.push('Check the placeholder or hint text near the field for the expected format.');
-      }
+      main = genericSummary(ctx, lang);
+      if (!main) { main = T('noInfo'); details.push(T('noInfoPoint')); }
     }
+    if (!headline && pat && patOk && lang === 'en') headline = `needs ${pat.text}`;
+    if (!headline) headline = actions[0] || String(main).split(/(?<=[.।])\s/)[0];
 
-    // 6. Mention when the site's own message is vague
+    // 5. Mention when the site's own message is vague
     if (ctx.errorText && VAGUE.test(ctx.errorText.trim())) {
-      points.unshift(`The site only said "${ctx.errorText.trim().slice(0, 60)}". Here is what it most likely means:`);
+      details.unshift(T('vague', { text: ctx.errorText.trim().slice(0, 60) }));
     }
 
-    const gen = genericSummary(ctx);
+    const gen = genericSummary(ctx, lang);
     if (!rule && !pat && gen) { source = 'native'; confidence = 'medium'; }
     // Ask the (optional) AI only when nothing on-device could explain the error
-    const needsAI = !rule && !(pat && pat.understood) && !gen;
+    const needsAI = !rule && !patOk && !gen;
 
     return {
-      title: rule ? rule.title : ctx.label ? truncate(ctx.label, 40) : 'This field',
+      title: rule ? rt.title : ctx.label ? truncate(ctx.label, 40) : T('thisBox'),
+      headline,
+      lines: [line('main', main), ...dedupe(actions).map((a) => line('action', a))],
       summary,
-      headline: headline || String(summary).split(/(?<=\.)\s/)[0],
-      points: dedupe(points),
-      example: rule ? rule.example : '',
-      source,
-      ruleId: rule ? rule.id : null,
-      confidence,
-      needsAI,
+      points: dedupe(details),
+      example: rt ? rt.example : '',
+      source, ruleId: rule ? rule.id : null, confidence, needsAI,
+      ui: I18N.ui(lang), lang,
     };
   }
 
-  function genericSummary(ctx) {
-    const t = ctx.type;
-    if (t === 'email') return 'Enter an email like name@example.com.';
-    if (t === 'url') return 'Enter a full web address, e.g. https://example.com';
-    if (t === 'number') return `Enter digits only${ctx.minAttr || ctx.maxAttr ? ` between ${ctx.minAttr ?? '…'} and ${ctx.maxAttr ?? '…'}` : ''}.`;
-    if (t === 'tel') return 'Enter a phone number using digits only.';
-    if (t === 'date') return 'Choose a valid date within the allowed range.';
-    if (t === 'checkbox') return 'You must tick this box to continue.';
-    if (t === 'select') return 'Please choose an option from the list.';
-    if (t === 'file') return 'Please choose a file to upload.';
-    if (t === 'radio') return 'Please select one of the options.';
-    if (ctx.minLength != null || ctx.maxLength != null) return 'The length of your entry is not accepted.';
-    return '';
-  }
-
-  const truncate = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
-  const dedupe = (arr) => [...new Set(arr)];
-
-  const api = { explain, findRule, normalise, lengthFeedback };
+  const api = { explain, findRule, normalise };
   root.FormGuard = root.FormGuard || {};
   root.FormGuard.RuleEngine = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

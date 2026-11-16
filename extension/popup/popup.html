@@ -31,6 +31,12 @@
   <details open>
     <summary>Settings</summary>
     <label class="switch-line"><input type="checkbox" id="tooltips"> Show suggestions under fields</label>
+    <label class="switch-line">Language / भाषा
+      <select id="lang" aria-label="Language / भाषा">
+        <option value="en">English</option>
+        <option value="hi">हिन्दी (Hindi)</option>
+      </select>
+    </label>
     <label class="switch-line"><input type="checkbox" id="aiEnabled"> AI fallback for unknown errors <em>(off = zero network calls)</em></label>
     <div id="aiBox" class="ai-box" hidden>
       <p>Only <code>{label, type, pattern, errorText, valueLength}</code> is sent, after removing emails, phone numbers, Aadhaar/PAN/IFSC-like text and quoted values. Typed values are never sent.</p>

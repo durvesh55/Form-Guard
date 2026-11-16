@@ -11,9 +11,9 @@
  */
 importScripts('lib/sanitizer.js');
 
-const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, serverUrl: 'http://localhost:3000/explain' };
+const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', serverUrl: 'http://localhost:3000/explain' };
 const CONTENT_FILES = [
-  'lib/sanitizer.js', 'lib/rules.js', 'lib/regexToEnglish.js', 'lib/ruleEngine.js',
+  'lib/sanitizer.js', 'lib/rules.js', 'lib/rulesText.js', 'lib/i18n.js', 'lib/regexToEnglish.js', 'lib/ruleEngine.js',
   'content/dom.js', 'content/tooltip.js', 'content/imageResize.js', 'content/fileAssist.js', 'content/detector.js',
 ];
 const MAX_LOG = 300;

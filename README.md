@@ -18,7 +18,7 @@ Load the extension: `chrome://extensions` → enable **Developer mode** → **Lo
 
 1. **Detect** — `content/detector.js` finds fields in an error state (`aria-invalid`, `:user-invalid`, red border, site error text). No polling: it rescans only after DOM mutations or user events.
 2. **Identify** — `lib/ruleEngine.js` scores each field's label / name / id / placeholder against `lib/rules.js` (Aadhaar, PAN, IFSC, mobile, PIN code, GSTIN, UPI, etc.).
-3. **Explain** — a tooltip (Shadow DOM, so page CSS can't break it) shows the rule's plain-language explanation, a **fake** example and tips. If the site supplied a regex `pattern`, `lib/regexToEnglish.js` translates it to English.
+3. **Explain** — a tooltip (Shadow DOM, so page CSS can't break it) shows one short sentence of what the field needs, one "do this" line (e.g. *You typed 4. Add 2 more numbers.*), and a **fake** example. Longer help sits behind a **More help** button. Language: **English or हिन्दी**, chosen in the popup (Settings → Language / भाषा). If the site supplied a regex `pattern`, `lib/regexToEnglish.js` translates it to English.
 4. **Files** — `content/fileAssist.js` reads only file size, MIME type and extension, extracts limits like "Max 50 KB" from nearby text, and `content/imageResize.js` can resize/compress an image in a canvas ("Resize for me") and put it back into the input.
 5. **Optional AI fallback** — off by default. Used only if no local rule matches.
 
@@ -30,6 +30,8 @@ Load the extension: `chrome://extensions` → enable **Developer mode** → **Lo
 | `extension/background.js` | Service worker: audit log, toolbar badge, the **only** network code, auto-run registration |
 | `extension/lib/sanitizer.js` | Strips PII (Aadhaar, PAN, phone, email, card-like numbers…) from any outgoing payload |
 | `extension/lib/rules.js` | JSON-style rule table for Indian form fields |
+| `extension/lib/rulesText.js` | Plain-language one-liners and Hindi wording for each rule, keyed by rule id |
+| `extension/lib/i18n.js` | Every sentence the engine can say, in English and Hindi |
 | `extension/lib/ruleEngine.js` | Matches a field to a rule and checks the value shape by length only |
 | `extension/lib/regexToEnglish.js` | Converts HTML `pattern` regexes to readable text |
 | `extension/content/dom.js` | Label / error-text / hint discovery. Never reads `element.value` |
@@ -101,4 +103,5 @@ Keep the sanitiser in front of either path.
 ## Notes
 
 - Edit files with an editor that keeps UTF-8 (on Windows PowerShell 5.1, `Get-Content`/`Set-Content` can corrupt non-ASCII characters).
-- Add rules by appending to `RULES` in `extension/lib/rules.js`; no other code changes needed.
+- Add rules by appending to `RULES` in `extension/lib/rules.js`, and add its `simple` + `hi` wording in `extension/lib/rulesText.js` (a unit test fails if a rule has no Hindi wording).
+- Add a language: copy the `en` block in `extension/lib/i18n.js`, translate it, add `hi`-style wording per rule in `rulesText.js`, and add an `<option>` in `popup/popup.html`. The file-upload helper's messages are still English only.

@@ -57,22 +57,35 @@ test('rule matching', () => {
   assert.ok(RULES.length >= 15);
 });
 
-test('length feedback', () => {
+const texts = (s) => [...s.lines.map((l) => l.text), ...s.points, s.summary].join(' | ');
+const DEVANAGARI = /[\u0900-\u097F]/;
+
+test('length feedback uses plain words and says what to do', () => {
   const s = explain({ label: 'PIN Code', type: 'text', errorText: 'Invalid input', valueLength: 4 });
-  assert.ok(s.points.some((p) => p.includes('You entered 4 characters') && p.includes('2 more')), s.points.join('|'));
+  assert.ok(s.lines.some((l) => l.kind === 'action' && l.text === 'You typed 4. Add 2 more numbers.'), texts(s));
+  assert.strictEqual(s.lines[0].kind, 'main');
+  assert.ok(s.lines[0].text.includes('exactly 6 numbers'), s.lines[0].text);
   assert.ok(s.points[0].startsWith('The site only said'));
   const t = explain({ label: 'Mobile', type: 'tel', valueLength: 12 });
-  assert.ok(t.points.some((p) => p.includes('2 too many')));
+  assert.ok(t.lines.some((l) => l.text === 'You typed 12. Remove 2 numbers.'), texts(t));
+  const one = explain({ label: 'PIN Code', type: 'text', valueLength: 5 });
+  assert.ok(one.lines.some((l) => l.text.includes('Add 1 more number.')), texts(one)); // singular
 });
 
 test('digit fields count digits only, not spaces or dashes', () => {
-  // "1234 5678" = 8 digits + 1 space (valueLength 9) -> 4 more digits, not 3
+  // "1234 5678" = 8 digits + 1 space (valueLength 9) -> 4 more numbers, not 3
   const a = explain({ label: 'Aadhaar number', type: 'text', valueLength: 9, digitCount: 8 });
-  assert.ok(a.points.some((p) => p.includes('8 digits plus 1 space') && p.includes('4 more')), a.points.join('|'));
+  assert.ok(a.lines.some((l) => l.text === 'You typed 8. Add 4 more numbers.'), texts(a));
+  assert.ok(a.lines.some((l) => l.text.startsWith('Remove spaces and dashes')), texts(a));
   assert.ok(a.headline.startsWith('4 more'), a.headline);
-  // no separators -> unchanged wording
+  // right count but separators: "1234 5678 9012" -> only the separator advice
+  const c = explain({ label: 'Aadhaar number', type: 'text', valueLength: 14, digitCount: 12 });
+  assert.ok(c.lines.some((l) => l.text.startsWith('Remove spaces and dashes')), texts(c));
+  assert.ok(!c.lines.some((l) => /Add \d+ more/.test(l.text)), texts(c));
+  // no separators -> same count either way
   const b = explain({ label: 'Aadhaar number', type: 'text', valueLength: 8, digitCount: 8 });
-  assert.ok(b.points.some((p) => p.includes('You entered 8 characters') && p.includes('4 more')), b.points.join('|'));
+  assert.ok(b.lines.some((l) => l.text === 'You typed 8. Add 4 more numbers.'), texts(b));
+  assert.ok(!b.lines.some((l) => l.text.startsWith('Remove spaces')), texts(b));
 });
 
 test('form-level banner is explained as a sign-in problem, not a username-format rule', () => {
@@ -81,7 +94,53 @@ test('form-level banner is explained as a sign-in problem, not a username-format
   assert.strictEqual(s.ruleId, 'form-level');
   assert.strictEqual(s.title, 'Sign-in problem');
   assert.strictEqual(s.needsAI, false);
-  assert.ok(s.points.some((p) => p.includes('lock the account')), s.points.join('|'));
+  assert.ok(s.lines.some((l) => l.kind === 'action' && l.text.includes('lock the account')), texts(s));
+});
+
+test('simple card: short main line + one action, long detail kept for "More help"', () => {
+  const s = explain({ label: 'PIN Code', type: 'text', valueLength: 4 });
+  assert.ok(s.lines.length <= 3, 'too many big lines: ' + s.lines.length);
+  assert.ok(s.lines[0].text.length < 80, s.lines[0].text);
+  assert.ok(s.ui && s.ui.more === 'More help');
+  assert.ok(!/regex|rule:|digits? from/i.test(s.lines.map((l) => l.text).join(' ')), 'no jargon in the big lines');
+});
+
+test('Hindi: every part of the card is in Hindi', () => {
+  const s = explain({ label: 'PIN Code', type: 'text', valueLength: 4, lang: 'hi' });
+  assert.strictEqual(s.title, 'पिन कोड');
+  assert.ok(DEVANAGARI.test(s.lines[0].text), s.lines[0].text);
+  assert.ok(s.lines.some((l) => l.text === 'आपने 4 अंक डाले हैं। 2 अंक और डालिए।'), texts(s));
+  assert.ok(DEVANAGARI.test(s.headline) && s.headline.includes('2 अंक'), s.headline);
+  assert.strictEqual(s.ui.more, 'और मदद');
+  assert.strictEqual(s.lang, 'hi');
+  // no English leaks into the big lines or the chip
+  assert.ok(!/[A-Za-z]{4,}/.test(s.lines.map((l) => l.text).join(' ') + s.headline), texts(s));
+});
+
+test('Hindi: digits-only counting, empty field, form-level banner, unknown field', () => {
+  const a = explain({ label: 'Aadhaar number', type: 'text', valueLength: 9, digitCount: 8, lang: 'hi' });
+  assert.ok(a.lines.some((l) => l.text === 'आपने 8 अंक डाले हैं। 4 अंक और डालिए।'), texts(a));
+  assert.ok(a.lines.some((l) => l.text.includes('खाली जगह')), texts(a));
+  const e = explain({ label: 'Full Name', type: 'text', required: true, valueLength: 0, lang: 'hi' });
+  assert.ok(e.lines.some((l) => l.text.startsWith('यह खाना खाली है')), texts(e));
+  const f = explain({ label: 'Username', type: 'text', formLevel: true, lang: 'hi',
+    errorText: 'Incorrect UserName or Password. You have 1 attempts remaining.' });
+  assert.strictEqual(f.title, 'लॉगिन में समस्या');
+  assert.ok(f.lines.some((l) => l.text.includes('लॉक')), texts(f));
+  const u = explain({ label: 'Widget code', type: 'text', errorText: 'Invalid', lang: 'hi' });
+  assert.ok(DEVANAGARI.test(u.lines[0].text) && u.title === 'Widget code', texts(u));
+});
+
+test('every rule has Hindi wording, and unknown languages fall back to English', () => {
+  const { RULE_TEXT } = require('../extension/lib/rulesText.js');
+  for (const r of RULES) {
+    const x = RULE_TEXT[r.id];
+    assert.ok(x && x.simple, `rule ${r.id} has no simple English line`);
+    assert.ok(x.hi && x.hi.title && DEVANAGARI.test(x.hi.simple), `rule ${r.id} has no Hindi wording`);
+  }
+  const s = explain({ label: 'PIN Code', type: 'text', valueLength: 4, lang: 'fr' });
+  assert.strictEqual(s.lang, 'en');
+  assert.strictEqual(s.title, 'PIN code');
 });
 
 test('unknown field asks for AI only when nothing local matches', () => {
