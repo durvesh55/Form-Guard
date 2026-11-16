@@ -154,7 +154,8 @@
     const kind = opts.kind || 'error';
     const box = el('div', 'tip' + (kind === 'file' ? ' file' : ''));
     box.setAttribute('role', 'note');
-    const entry = { box, signature: opts.signature, anchor: opts.anchor || field, kind, pinned: false, hover: false, startCompact: !!opts.compact };
+    const entry = { box, signature: opts.signature, anchor: opts.anchor || field, kind, pinned: false, hover: false,
+      startCompact: !!opts.compact, keepOpen: !!opts.keepOpen };
 
     const head = el('div', 'head');
     head.tabIndex = 0;
@@ -247,10 +248,17 @@
    * (so cards don't cover the rest of the form); hovered / pinned chips expand.
    */
   function layout() {
+    // Only tooltips that are actually on screen count towards "several" (a hidden one must not squash the rest).
+    const onScreen = [...tips.values()].filter((t) => {
+      if (!t.anchor.isConnected) return false;
+      const r = t.anchor.getBoundingClientRect();
+      return r.width > 0 || r.height > 0;
+    }).length;
     for (const t of tips.values()) {
       // startCompact: long messages (e.g. a form-level banner) stay a one-line chip even when alone,
-      // so they don't cover the next field. Hover or click expands them.
-      const compact = (tips.size > 1 || t.startCompact) && !t.pinned && !t.hover;
+      // so they don't cover the next field. keepOpen: cards with a button to press (e.g. "Make it smaller")
+      // are never squashed into a chip — the button is the whole point. Hover or click expands the rest.
+      const compact = (onScreen > 1 || t.startCompact) && !t.keepOpen && !t.pinned && !t.hover;
       t.box.classList.toggle('compact', compact);
     }
     for (const t of tips.values()) position(t.anchor, t.box); // width changed -> re-clamp
@@ -260,7 +268,7 @@
     const r = field.getBoundingClientRect();
     if (!field.isConnected || (r.width === 0 && r.height === 0)) { box.style.display = 'none'; return; }
     box.style.display = '';
-    box.style.setProperty('--w', Math.max(r.width, 200) + 'px');
+    box.style.setProperty('--w', Math.max(r.width, 280) + 'px');   // a chip narrower than this is unreadable
     const maxLeft = document.documentElement.clientWidth - box.offsetWidth - 8;
     const left = Math.max(8, Math.min(r.left, maxLeft)) + window.scrollX;
     box.style.left = left + 'px';

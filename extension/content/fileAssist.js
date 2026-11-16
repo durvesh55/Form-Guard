@@ -177,7 +177,7 @@
       summary: T('faSelected', { label: sizeLabel }),
       points: problems.slice(1),
       source: 'file-check', ui, lang,
-    }, { kind: 'file', signature: [file.size, file.type, errorText, max, lang].join('|'), actions, anchor: anchorFor(input) });
+    }, { kind: 'file', signature: [file.size, file.type, errorText, max, lang].join('|'), actions, keepOpen: actions.length > 0, anchor: anchorFor(input) });
     return true;
   }
 
