@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FormGuard</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="../icons/icon32.png" alt="" width="24" height="24">
+    <h1>FormGuard</h1>
+    <span id="status" class="pill">Checking…</span>
+  </header>
+
+  <section class="stats" aria-label="Privacy summary">
+    <div><b id="statRead">0</b><span>fields analysed</span></div>
+    <div><b id="statBlocked">0</b><span>values never read</span></div>
+    <div><b id="statSent">0</b><span>server requests</span></div>
+    <div><b id="statBytes">0</b><span>bytes sent</span></div>
+  </section>
+  <p id="privacyLine" class="privacy"></p>
+  <p id="accessNote" class="privacy warn" hidden></p>
+
+  <section class="row">
+    <button id="rescan" class="primary">Check this page now</button>
+    <label class="switch-line" title="Lets FormGuard start automatically on this website (asks for permission)">
+      <input type="checkbox" id="alwaysOn"> Always run on this site
+    </label>
+  </section>
+
+  <details open>
+    <summary>Settings</summary>
+    <label class="switch-line"><input type="checkbox" id="tooltips"> Show suggestions under fields</label>
+    <label class="switch-line"><input type="checkbox" id="aiEnabled"> AI fallback for unknown errors <em>(off = zero network calls)</em></label>
+    <div id="aiBox" class="ai-box" hidden>
+      <p>Only <code>{label, type, pattern, errorText, valueLength}</code> is sent, after removing emails, phone numbers, Aadhaar/PAN/IFSC-like text and quoted values. Typed values are never sent.</p>
+      <label>Server URL <input type="url" id="serverUrl" spellcheck="false"></label>
+    </div>
+  </details>
+
+  <section class="log">
+    <div class="log-head">
+      <h2>Privacy audit log</h2>
+      <select id="filter" aria-label="Filter log">
+        <option value="all">All</option>
+        <option value="read">Read</option>
+        <option value="blocked">Blocked</option>
+        <option value="sent">Sent</option>
+        <option value="local">On-device actions</option>
+      </select>
+    </div>
+    <ul id="log"></ul>
+    <div class="row small">
+      <button id="exportLog">Export JSON</button>
+      <button id="clearLog">Clear log</button>
+    </div>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

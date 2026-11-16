@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FormGuard Test Forms</title>
+<style>
+  :root { --bg: #f4f6f8; --card: #fff; --fg: #1f2328; --muted: #57606a; --line: #d0d7de; --red: #d1242f; --blue: #0969da; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0d1117; --card: #161b22; --fg: #e6edf3; --muted: #9da7b3; --line: #30363d; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
+  .card h2 { margin: 0 0 4px; font-size: 17px; }
+  .card > p { margin: 0 0 12px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  label { display: block; font-weight: 600; margin-bottom: 2px; }
+  input, select { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: var(--card); color: var(--fg); }
+  .is-error { border-color: #e5534b !important; border-width: 2px; }
+  .error-msg { color: var(--red); font-size: 12px; }
+  [role="alert"] { color: var(--red); font-size: 12px; }
+  button { margin-top: 12px; padding: 8px 14px; border: 0; border-radius: 6px; background: var(--blue); color: #fff; font: 600 14px system-ui; cursor: pointer; }
+  button.secondary { background: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .upload-btn { display: inline-block; padding: 7px 12px; border: 1px dashed var(--line); border-radius: 6px; cursor: pointer; font-weight: 600; }
+  code { background: rgba(127,127,127,.15); padding: 1px 4px; border-radius: 4px; }
+  .note { border-left: 4px solid var(--blue); padding: 8px 12px; background: var(--card); }
+</style>
+</head>
+<body>
+<main>
+  <h1>FormGuard test page</h1>
+  <p class="note">Open DevTools → <b>Network</b> tab before testing. With AI fallback OFF, using these forms must create <b>zero</b> requests from the extension. Fields are pre-filled with <b>deliberately wrong</b> values.</p>
+
+  <!-- ===================== A. Native HTML5 validation ===================== -->
+  <section class="card">
+    <h2>A. Native HTML5 validation (pattern / type / min / max)</h2>
+    <p>Click <b>Submit A</b>. Every field below is wrong; expect one tooltip per field.</p>
+    <form id="formA" onsubmit="event.preventDefault(); alert('Form A valid!');">
+      <div class="grid">
+        <div><label for="a-name">Full Name</label><input id="a-name" name="fullName" required pattern="[A-Za-z ]+" value="Rahul K. 2"></div>
+        <div><label for="a-pin">PIN Code</label><input id="a-pin" name="pincode" required pattern="[1-9][0-9]{5}" value="4110"></div>
+        <div><label for="a-mobile">Mobile Number</label><input id="a-mobile" name="mobile" type="tel" required pattern="[6-9][0-9]{9}" value="98765"></div>
+        <div><label for="a-email">Email</label><input id="a-email" name="email" type="email" required value="rahul.gmail.com"></div>
+        <div><label for="a-pass">Password</label><input id="a-pass" name="password" type="password" required minlength="8" pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%!]).{8,15}" value="abc"></div>
+        <div><label for="a-aadhaar">Aadhaar Number</label><input id="a-aadhaar" name="aadhaar" required pattern="[2-9][0-9]{11}" value="1234 5678"></div>
+        <div><label for="a-pan">PAN</label><input id="a-pan" name="pan" required pattern="[A-Z]{5}[0-9]{4}[A-Z]" value="abcde1234f"></div>
+        <div><label for="a-ifsc">IFSC Code</label><input id="a-ifsc" name="ifsc" required pattern="[A-Z]{4}0[A-Z0-9]{6}" value="SBIN00012"></div>
+        <div><label for="a-dob">Date of Birth</label><input id="a-dob" name="dob" type="date" required max="2008-12-31" value="2015-01-01"></div>
+        <div><label for="a-otp">OTP</label><input id="a-otp" name="otp" required inputmode="numeric" pattern="\d{6}" maxlength="6" value="12"></div>
+        <div><label for="a-age">Age</label><input id="a-age" name="age" type="number" min="18" max="60" value="15"></div>
+        <div><label for="a-state">State</label><select id="a-state" required><option value="">-- Select --</option><option>Maharashtra</option></select></div>
+      </div>
+      <button type="submit">Submit A</button>
+    </form>
+  </section>
+
+  <!-- ===================== B. Custom JS validation (vague errors) ===================== -->
+  <section class="card">
+    <h2>B. Custom JavaScript validation with vague errors</h2>
+    <p>No HTML5 attributes. Clicking <b>Register</b> runs site JS that adds a red border and the useless message "Invalid input" — like many government portals.</p>
+    <form id="formB" novalidate>
+      <div class="grid">
+        <div class="field"><label for="b-pin">PIN Code</label><input id="b-pin" name="txtPinCode" value="41100"></div>
+        <div class="field"><label for="b-mobile">Mobile No.</label><input id="b-mobile" name="txtMobileNo" value="+91 98765 4321"></div>
+        <div class="field"><label for="b-pass">Password</label><input id="b-pass" name="txtPassword" type="password" value="password"></div>
+        <div class="field"><label for="b-cpass">Confirm Password</label><input id="b-cpass" name="txtConfirm" type="password" value="passwrd"></div>
+        <div class="field"><label for="b-name">Applicant Name</label><input id="b-name" name="txtName" value="R@hul"></div>
+        <div class="field"><label for="b-ifsc">IFSC Code</label><input id="b-ifsc" name="txtIfsc" value="SBIN001234"></div>
+        <div class="field"><label for="b-widget">Widget Reference Code</label><input id="b-widget" name="txtWidget" value="QX-77"></div>
+        <div class="field"><label for="b-user">User ID</label><input id="b-user" name="txtUser" value="ab"></div>
+      </div>
+      <button type="button" id="registerB">Register</button>
+    </form>
+  </section>
+
+  <!-- ===================== C. SPA re-render ===================== -->
+  <section class="card">
+    <h2>C. Single-page-app style form (re-rendered by JavaScript)</h2>
+    <p>Click <b>Load step 2</b>, then click into each field and press Tab. Errors use <code>aria-invalid</code> + <code>role="alert"</code>. <b>Re-render</b> destroys and recreates the form: old tooltips must disappear.</p>
+    <div id="spaRoot"><em class="hint">Step 1 complete.</em></div>
+    <button type="button" id="loadStep2">Load step 2</button>
+    <button type="button" class="secondary" id="rerender">Re-render</button>
+  </section>
+
+  <!-- ===================== D. File upload ===================== -->
+  <section class="card">
+    <h2>D. File upload with size / type limits</h2>
+    <p>Use the generator buttons (no real photo needed), or pick your own image.</p>
+    <div class="grid">
+      <div>
+        <label for="d-photo">Passport Photo</label>
+        <input id="d-photo" name="photo" type="file" accept=".jpg,.jpeg" data-max-size="50KB">
+        <div class="hint">JPG/JPEG only, size 20 KB to 50 KB.</div>
+        <span class="error-msg" id="d-photo-err"></span>
+      </div>
+      <div>
+        <span style="font-weight:600;display:block">Signature</span>
+        <label for="d-sign" class="upload-btn">📤 Choose signature</label>
+        <input id="d-sign" name="signature" type="file" accept="image/jpeg,image/png" style="display:none">
+        <div class="hint">Max file size 20 KB.</div>
+        <span class="error-msg" id="d-sign-err"></span>
+      </div>
+    </div>
+    <button type="button" id="gen2mb">Generate ~2 MB test photo → Photo</button>
+    <button type="button" id="genPng" class="secondary">Generate PNG → Photo (wrong type)</button>
+    <button type="button" id="genSign" class="secondary">Generate 300 KB image → Signature</button>
+  </section>
+
+  <!-- ===================== E. Form-level banner (IRCTC-style login) ===================== -->
+  <section class="card">
+    <h2>E. Form-level error banner (login style)</h2>
+    <p>Click <b>Login</b> with any fake values. The site shows ONE red banner above the fields (no per-field error), like IRCTC. Expect a "Sign-in problem" tooltip under Username.</p>
+    <div id="loginBox">
+      <div id="loginBanner" style="display:none;color:#b00020;background:#fde7ea;padding:10px;border-radius:6px;margin-bottom:10px;font-weight:600">
+        Incorrect UserName or Password. If you have recently changed it, use the latest one. You have 3 attempts remaining.
+      </div>
+      <div class="grid">
+        <div class="field"><label for="e-user">Username</label><input id="e-user" placeholder="Enter Username"></div>
+        <div class="field"><label for="e-pass">Password</label><input id="e-pass" type="password" placeholder="Enter password"></div>
+      </div>
+      <button type="button" id="loginE">Login</button>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ---------- E: show a form-level banner on login click ---------- */
+document.getElementById('loginE').addEventListener('click', () => {
+  document.getElementById('loginBanner').style.display = 'block';
+});
+
+/* ---------- B: site's own (bad) validation ---------- */
+const rulesB = {
+  'b-pin': (v) => /^[1-9]\d{5}$/.test(v),
+  'b-mobile': (v) => /^[6-9]\d{9}$/.test(v),
+  'b-pass': (v) => /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*\W).{8,15}$/.test(v),
+  'b-cpass': (v) => v === document.getElementById('b-pass').value,
+  'b-name': (v) => /^[A-Za-z ]+$/.test(v),
+  'b-ifsc': (v) => /^[A-Z]{4}0[A-Z0-9]{6}$/.test(v),
+  'b-widget': (v) => /^WR\d{4}$/.test(v),
+  'b-user': (v) => /^[A-Za-z]\w{2,34}$/.test(v),
+};
+document.getElementById('registerB').addEventListener('click', () => {
+  for (const [id, ok] of Object.entries(rulesB)) {
+    const input = document.getElementById(id);
+    const wrap = input.closest('.field');
+    wrap.querySelector('.error-msg')?.remove();
+    if (ok(input.value)) { input.classList.remove('is-error'); continue; }
+    input.classList.add('is-error');
+    const msg = document.createElement('span');
+    msg.className = 'error-msg';
+    msg.textContent = id === 'b-widget' ? 'Invalid value' : 'Invalid input';
+    wrap.appendChild(msg);
+  }
+});
+
+/* ---------- C: SPA ---------- */
+function renderStep2() {
+  const root = document.getElementById('spaRoot');
+  root.innerHTML = `
+    <div class="grid">
+      <div><label for="c-aadhaar">Aadhaar</label><input id="c-aadhaar" aria-describedby="c-aadhaar-msg" value="12345">
+        <div id="c-aadhaar-msg"></div></div>
+      <div><label for="c-pan">PAN Card Number</label><input id="c-pan" aria-describedby="c-pan-msg" value="ABCD1234F">
+        <div id="c-pan-msg"></div></div>
+      <div><label for="c-acc">Bank Account Number</label><input id="c-acc" aria-describedby="c-acc-msg" value="1234-5678">
+        <div id="c-acc-msg"></div></div>
+      <div><label for="c-upi">UPI ID</label><input id="c-upi" aria-describedby="c-upi-msg" value="rahul.okaxis">
+        <div id="c-upi-msg"></div></div>
+    </div>`;
+  const checks = {
+    'c-aadhaar': [(v) => /^[2-9]\d{11}$/.test(v), 'Enter valid Aadhaar'],
+    'c-pan': [(v) => /^[A-Z]{5}\d{4}[A-Z]$/.test(v), 'Invalid PAN'],
+    'c-acc': [(v) => /^\d{9,18}$/.test(v), 'Invalid account number'],
+    'c-upi': [(v) => /^[\w.-]+@[a-z]+$/i.test(v), 'Invalid input'],
+  };
+  for (const [id, [ok, text]] of Object.entries(checks)) {
+    const input = document.getElementById(id);
+    input.addEventListener('blur', () => {
+      const msg = document.getElementById(id + '-msg');
+      const valid = ok(input.value);
+      input.setAttribute('aria-invalid', String(!valid));
+      if (valid) { msg.removeAttribute('role'); msg.textContent = ''; }
+      else { msg.setAttribute('role', 'alert'); msg.textContent = text; }
+    });
+  }
+}
+document.getElementById('loadStep2').addEventListener('click', renderStep2);
+document.getElementById('rerender').addEventListener('click', () => {
+  document.getElementById('spaRoot').innerHTML = '<em class="hint">Re-rendering…</em>';
+  setTimeout(renderStep2, 300);
+});
+
+/* ---------- D: site's own file validation + test-image generators ---------- */
+function siteFileCheck(input, errId, maxKB, exts) {
+  input.addEventListener('change', () => {
+    const f = input.files[0], err = document.getElementById(errId);
+    err.textContent = '';
+    if (!f) return;
+    const ext = f.name.split('.').pop().toLowerCase();
+    if (!exts.includes(ext)) err.textContent = 'Invalid file format';
+    else if (f.size > maxKB * 1024) err.textContent = 'File size exceeds limit';
+  });
+}
+siteFileCheck(document.getElementById('d-photo'), 'd-photo-err', 50, ['jpg', 'jpeg']);
+siteFileCheck(document.getElementById('d-sign'), 'd-sign-err', 20, ['jpg', 'jpeg', 'png']);
+
+/** Draws a colourful noisy picture (noise = hard to compress = realistic big photo). */
+async function makeImage(w, h, type, quality, name) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, w, h);
+  g.addColorStop(0, '#3b82f6'); g.addColorStop(1, '#f59e0b');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  const img = ctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 90;
+    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(w / 12)}px sans-serif`;
+  ctx.fillText('TEST PHOTO', w * 0.1, h * 0.55);
+  const blob = await new Promise((r) => c.toBlob(r, type, quality));
+  return new File([blob], name, { type });
+}
+function putFile(input, file) {
+  const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+document.getElementById('gen2mb').addEventListener('click', async () =>
+  putFile(document.getElementById('d-photo'), await makeImage(2000, 1500, 'image/jpeg', 0.95, 'my_photo.jpg')));
+document.getElementById('genPng').addEventListener('click', async () =>
+  putFile(document.getElementById('d-photo'), await makeImage(600, 450, 'image/png', 1, 'my_photo.png')));
+document.getElementById('genSign').addEventListener('click', async () =>
+  putFile(document.getElementById('d-sign'), await makeImage(900, 300, 'image/jpeg', 0.95, 'signature.jpg')));
+</script>
+</body>
+</html>

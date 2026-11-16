@@ -1,0 +1,12 @@
+{
+  "name": "formguard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Privacy-preserving on-device browser agent for form error detection, correction guidance and file assistance (ISRO PS 26171).",
+  "scripts": {
+    "test": "node --test tests/unit.test.js",
+    "test-page": "node test/serve.js",
+    "icons": "node tools/make-icons.js",
+    "server": "cd server && npm install && npm start"
+  }
+}
