@@ -43,8 +43,11 @@
     return new RegExp(`(^|[^a-z])${esc}([^a-z]|$)`).test(haystack);
   }
 
-  /** Score every rule and return the best one (or null). */
-  function findRule(ctx) {
+  /**
+   * Score every rule and return the best one (or null).
+   * labelOnly: only rules whose keyword appears in the VISIBLE label can win.
+   */
+  function pickRule(ctx, labelOnly) {
     const label = normalise(ctx.label);
     const name = normalise(ctx.nameAttr);
     const placeholder = normalise(ctx.placeholder);
@@ -58,16 +61,28 @@
         const w = kw.split(' ').length; // multi-word keywords are more specific
         let s = 0;
         if (hasWord(label, kw)) s = Math.max(s, 3 * w);
-        if (hasWord(name, kw)) s = Math.max(s, 2 * w);
-        if (hasWord(placeholder, kw)) s = Math.max(s, 1 * w);
-        if (hasWord(error, kw)) s = Math.max(s, 1 * w);
+        if (!labelOnly) {
+          if (hasWord(name, kw)) s = Math.max(s, 2 * w);
+          if (hasWord(placeholder, kw)) s = Math.max(s, 1 * w);
+          if (hasWord(error, kw)) s = Math.max(s, 1 * w);
+        }
         score = Math.max(score, s);
       }
+      if (labelOnly && score === 0) continue;
       if ((rule.types || []).includes(ctx.type)) score += 3;
       if ((rule.autocomplete || []).includes(String(ctx.autocomplete || '').toLowerCase())) score += 4;
       if (score > bestScore) { best = rule; bestScore = score; }
     }
     return bestScore >= 3 ? { rule: best, score: bestScore } : null;
+  }
+
+  /**
+   * What the user READS beats what the developer named the field: a box labelled "Email Address"
+   * is an email box even if its hidden name/id is "username". Only when the label says nothing useful
+   * do we fall back to name / id / placeholder / the site's error text.
+   */
+  function findRule(ctx) {
+    return pickRule(ctx, true) || pickRule(ctx, false);
   }
 
   const VAGUE = /^(invalid|error|wrong|incorrect|not valid|please check|invalid input|invalid value|invalid format|field is invalid)\b/i;

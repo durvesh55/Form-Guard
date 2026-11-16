@@ -57,6 +57,19 @@ test('rule matching', () => {
   assert.ok(RULES.length >= 15);
 });
 
+test('the visible label beats a misleading hidden name', () => {
+  // SuccessFactors-style: label says "Email Address:" but the input is named "username"
+  const m = findRule({ label: 'Email Address:', nameAttr: 'username fbclc_userName', type: 'text' });
+  assert.strictEqual(m.rule.id, 'email');
+  assert.strictEqual(findRule({ label: 'Mobile No.', nameAttr: 'txtPin' }).rule.id, 'mobile');
+  // no useful label -> the hidden name still works
+  assert.strictEqual(findRule({ label: 'Enter value', nameAttr: 'txtAadhaarNumber' }).rule.id, 'aadhaar');
+  assert.strictEqual(findRule({ label: '', nameAttr: 'user_name' }).rule.id, 'username');
+  const s = explain({ label: 'Email Address:', nameAttr: 'username', type: 'text', required: true, valueLength: 0 });
+  assert.strictEqual(s.ruleId, 'email');
+  assert.ok(s.lines[0].text.includes('name@gmail.com'), s.lines[0].text);
+});
+
 const texts = (s) => [...s.lines.map((l) => l.text), ...s.points, s.summary].join(' | ');
 const DEVANAGARI = /[\u0900-\u097F]/;
 
