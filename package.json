@@ -6,6 +6,8 @@
   "scripts": {
     "test": "node --test tests/unit.test.js",
     "test-page": "node test/serve.js",
+    "e2e": "cd e2e && npm install && npm test",
+    "e2e:sweep": "cd e2e && npm run sweep",
     "icons": "node tools/make-icons.js",
     "server": "cd server && npm install && npm start"
   }

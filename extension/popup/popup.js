@@ -15,7 +15,7 @@ const CONTENT_FILES = [
   'lib/sanitizer.js', 'lib/rules.js', 'lib/rulesText.js', 'lib/i18n.js', 'lib/regexToEnglish.js', 'lib/ruleEngine.js',
   'content/dom.js', 'content/tooltip.js', 'content/imageResize.js', 'content/fileAssist.js', 'content/detector.js',
 ];
-const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', autoClear: true, serverUrl: 'http://localhost:3000/explain' };
+const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', autoClear: true, liveHint: true, textSize: 'normal', contrast: false, serverUrl: 'http://localhost:3000/explain' };
 const ALL_SITES = ['https://*/*', 'http://*/*'];
 const $ = (id) => document.getElementById(id);
 const UI = globalThis.FG_UI;
@@ -47,6 +47,11 @@ async function ping() {
   try { return await chrome.tabs.sendMessage(tab.id, { type: 'PING' }); } catch (e) { return null; }
 }
 
+/** Errors / fields added up over the main page AND every iframe (the background keeps the sum). */
+async function tabStatus() {
+  try { return await chrome.runtime.sendMessage({ type: 'TAB_STATUS', tabId: tab.id }); } catch (e) { return null; }
+}
+
 async function activate() {
   [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url || /^(chrome|edge|about|chrome-extension|devtools):/.test(tab.url) || tab.url.startsWith('https://chromewebstore.google.com')) {
@@ -56,7 +61,9 @@ async function activate() {
   let res = await ping();
   if (!res) {
     try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_FILES });
+      // every frame (forms inside iframes); if Chrome refuses some frame, at least do the main page
+      try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: CONTENT_FILES }); }
+      catch (e) { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_FILES }); }
       await new Promise((r) => setTimeout(r, 500));   // let the first scan finish before we read the count
       res = await ping();
     } catch (e) {
@@ -65,15 +72,19 @@ async function activate() {
       return;
     }
   }
-  page = { kind: 'ok', errors: res ? res.errors : 0, fields: res ? res.fields : 0 };
+  const sum = await tabStatus();
+  page = { kind: 'ok', errors: sum ? sum.errors : (res ? res.errors : 0), fields: sum ? sum.fields : (res ? res.fields : 0) };
   renderStatus();
 }
 
 $('recheck').addEventListener('click', async () => {
   if (!tab) return;
   const res = await chrome.tabs.sendMessage(tab.id, { type: 'RESCAN' }).catch(() => null);
-  if (res) { page = { kind: 'ok', errors: res.errors, fields: res.fields }; renderStatus(); }
-  else activate();
+  if (!res) return activate();
+  await new Promise((r) => setTimeout(r, 300));          // let every frame finish its scan
+  const sum = await tabStatus();
+  page = { kind: 'ok', errors: sum ? sum.errors : res.errors, fields: sum ? sum.fields : res.fields };
+  renderStatus();
 });
 
 // ---------------- "turn on for all websites" (only until it is on) ------------------------
@@ -94,7 +105,17 @@ function applyLang() {
   renderStatus(); renderTurnOn(); renderLog();
 }
 
+const POPUP_ZOOM = { normal: 1, large: 1.15, xlarge: 1.3 };
+function applyDisplayPrefs() {
+  document.body.style.zoom = String(POPUP_ZOOM[settings.textSize] || 1);
+  document.body.classList.toggle('hc', !!settings.contrast);
+}
+
 function syncControls() {
+  $('liveHint').checked = settings.liveHint;
+  $('textSize').value = settings.textSize;
+  $('contrast').checked = settings.contrast;
+  applyDisplayPrefs();
   $('pause').checked = !settings.enabled;
   $('autoClear').checked = settings.autoClear;
   $('aiEnabled').checked = settings.aiEnabled;
@@ -108,6 +129,10 @@ document.querySelectorAll('.langs button').forEach((b) => b.addEventListener('cl
   applyLang();
 }));
 $('pause').addEventListener('change', (e) => { settings.enabled = !e.target.checked; chrome.storage.local.set({ enabled: settings.enabled }); renderStatus(); });
+$('liveHint').addEventListener('change', (e) => chrome.storage.local.set({ liveHint: e.target.checked }));
+$('textSize').addEventListener('change', (e) => { settings.textSize = e.target.value; applyDisplayPrefs(); chrome.storage.local.set({ textSize: settings.textSize }); });
+$('contrast').addEventListener('change', (e) => { settings.contrast = e.target.checked; applyDisplayPrefs(); chrome.storage.local.set({ contrast: settings.contrast }); });
+$('openReport').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('report/report.html') }));
 $('autoClear').addEventListener('change', (e) => chrome.storage.local.set({ autoClear: e.target.checked }));
 $('aiEnabled').addEventListener('change', (e) => {
   $('aiBox').hidden = !e.target.checked;
@@ -127,6 +152,9 @@ async function renderLog() {
   const sent = auditLog.filter((e) => e.kind === 'sent');
   const bytes = sent.reduce((n, e) => n + (e.bytes || 0), 0);
   $('statLine').textContent = T('stats', { reads, sent: sent.length, bytes });
+  const { unknownFields = [] } = await chrome.storage.local.get({ unknownFields: [] });
+  $('unknownLine').textContent = T('unknown', { n: unknownFields.length });
+  $('exportUnknown').disabled = !unknownFields.length;
 
   const line = $('privacyLine');
   if (settings.aiEnabled) {
@@ -155,6 +183,12 @@ async function renderLog() {
   }
 }
 
+$('exportUnknown').addEventListener('click', async () => {
+  const { unknownFields = [] } = await chrome.storage.local.get('unknownFields');
+  const url = URL.createObjectURL(new Blob([JSON.stringify(unknownFields.map(({ key, ...f }) => f), null, 2)], { type: 'application/json' }));
+  const a = el('a'); a.href = url; a.download = `formguard-unknown-fields-${Date.now()}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
 $('clearLog').addEventListener('click', () => chrome.storage.local.set({ auditLog: [] }));
 $('exportLog').addEventListener('click', async () => {
   const { auditLog = [] } = await chrome.storage.local.get('auditLog');
@@ -165,10 +199,10 @@ $('exportLog').addEventListener('click', async () => {
 
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
-  if (changes.lang || changes.enabled || changes.aiEnabled || changes.serverUrl || changes.autoClear) {
+  if (changes.lang || changes.enabled || changes.aiEnabled || changes.serverUrl || changes.autoClear || changes.liveHint || changes.textSize || changes.contrast) {
     settings = await chrome.storage.local.get(DEFAULTS);
     syncControls(); applyLang();
-  } else if (changes.auditLog) renderLog();
+  } else if (changes.auditLog || changes.unknownFields) renderLog();
 });
 
 // ---------------- start ----------------------------------------------------------------------

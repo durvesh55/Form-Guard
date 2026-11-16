@@ -27,6 +27,26 @@
 
   const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
+  /** The tree an element lives in (document, or the shadow root of a web component). ids are looked up there. */
+  function rootOf(el) {
+    const r = el.getRootNode && el.getRootNode();
+    return r && r.getElementById ? r : document;
+  }
+
+  /**
+   * querySelectorAll that ALSO looks inside open shadow roots (web components, some government portals).
+   * Closed shadow roots cannot be reached by any extension. Returns { items, roots } where roots are the
+   * shadow roots found, so the caller can watch them for changes.
+   */
+  function queryAllDeep(selector, root = document, acc = { items: [], roots: [], seen: 0 }) {
+    acc.items.push(...root.querySelectorAll(selector));
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    for (let n = walker.nextNode(); n && acc.seen < 30000; n = walker.nextNode(), acc.seen++) {
+      if (n.shadowRoot) { acc.roots.push(n.shadowRoot); queryAllDeep(selector, n.shadowRoot, acc); }
+    }
+    return acc;
+  }
+
   function isVisible(n) {
     if (!n || !n.getClientRects || n.getClientRects().length === 0) return false;
     const cs = getComputedStyle(n);
@@ -57,7 +77,7 @@
 
   /** Find the human-readable label of a field (tries 7 strategies). */
   function getLabelText(el) {
-    const byIds = (ids) => clean(ids.split(/\s+/).map((id) => document.getElementById(id))
+    const byIds = (ids) => clean(ids.split(/\s+/).map((id) => rootOf(el).getElementById(id))
       .filter(Boolean).map((n) => n.textContent).join(' '));
     const a = el.getAttribute('aria-label');
     if (a) return clean(a).slice(0, 120);
@@ -115,13 +135,13 @@
   function findErrorText(el) {
     const em = el.getAttribute('aria-errormessage');
     if (em) {
-      const n = document.getElementById(em);
+      const n = rootOf(el).getElementById(em);
       if (usable(n, el)) return { text: clean(n.textContent).slice(0, 200), strong: true };
     }
     const db = el.getAttribute('aria-describedby');
     if (db) {
       for (const id of db.split(/\s+/)) {
-        const n = document.getElementById(id);
+        const n = rootOf(el).getElementById(id);
         if (usable(n, el) && looksLikeError(n)) return result(n);
       }
     }
@@ -155,7 +175,13 @@
    * Returns it only for the FIRST visible field of the container, so one banner = one tooltip.
    * Needs red text or an error class, AND error-like wording, so ordinary red text is ignored.
    */
-  function findFormError(field) {
+  // For a page that has JUST loaded with an error banner (server-rendered forms reload after submit),
+  // nothing is "touched" yet. Then we are stricter: the banner must carry an error class / role, and the
+  // wording must be a real failure — a permanent red note "fields marked * are mandatory" is not an error.
+  const STRICT_ERROR_WORDS_RE = /\b(incorrect|invalid|wrong|failed|failure|error|not valid|not match|mismatch|try again|attempts?|expired|denied|unable|cannot|can't|locked)\b/i;
+
+  function findFormError(field, opts = {}) {
+    const untouched = !!opts.untouched;
     let c = field.parentElement;
     for (let depth = 0; c && depth < 7; depth++, c = c.parentElement) {
       const fields = c.querySelectorAll(FIELD_SELECTOR);
@@ -167,9 +193,10 @@
         if (++seen > 200) break;
         if (n.childElementCount > 2 || n.contains(field) || n.querySelector(FIELD_SELECTOR)) continue;
         const t = clean(n.textContent);
-        if (t.length < 15 || t.length > 300 || !ERROR_WORDS_RE.test(t)) continue;
+        if (t.length < 15 || t.length > 300 || !(untouched ? STRICT_ERROR_WORDS_RE : ERROR_WORDS_RE).test(t)) continue;
         if (!isVisible(n)) continue;
-        if (n.matches(ERROR_SELECTOR) || hasErrorClass(n) || isReddish(getComputedStyle(n).color)) {
+        const marked = n.matches(ERROR_SELECTOR) || hasErrorClass(n);
+        if (marked || (!untouched && isReddish(getComputedStyle(n).color))) {
           return { text: t.slice(0, 200), strong: true };
         }
       }
@@ -181,7 +208,7 @@
   function getHintText(el) {
     const parts = [getLabelText(el), el.title || ''];
     const db = el.getAttribute('aria-describedby');
-    if (db) db.split(/\s+/).forEach((id) => { const n = document.getElementById(id); if (n) parts.push(n.textContent); });
+    if (db) db.split(/\s+/).forEach((id) => { const n = rootOf(el).getElementById(id); if (n) parts.push(n.textContent); });
     let c = el.parentElement;
     for (let depth = 0; c && depth < 3; depth++, c = c.parentElement) {
       if (c.querySelectorAll(FIELD_SELECTOR).length > 1) break;
@@ -190,5 +217,5 @@
     return clean(parts.join(' ')).slice(0, 600);
   }
 
-  FG.Dom = { FIELD_SELECTOR, isVisible, isReddish, hasRedBorder, getLabelText, findErrorText, findFormError, getHintText };
+  FG.Dom = { FIELD_SELECTOR, queryAllDeep, rootOf, isVisible, isReddish, hasRedBorder, getLabelText, findErrorText, findFormError, getHintText };
 })(globalThis);

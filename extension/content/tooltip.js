@@ -21,7 +21,7 @@
       background: #fffdf5; color: #1f2328; border: 1px solid #e3b341;
       border-left: 4px solid #d4a72c; border-radius: 8px;
       box-shadow: 0 6px 20px rgba(0,0,0,.18);
-      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Nirmala UI", Roboto, sans-serif;
+      font: calc(14px * var(--s, 1))/1.5 system-ui, -apple-system, "Segoe UI", "Nirmala UI", Roboto, sans-serif;
       pointer-events: auto; animation: fade .12s ease-out;
     }
     .tip.file { border-color: #54aeff; border-left-color: #0969da; background: #f6fbff; }
@@ -39,13 +39,13 @@
     .summary { margin: 0 0 4px; }
     /* Simple card: big main sentence, highlighted "do this" lines, help hidden until asked */
     .line { margin: 0 0 6px; }
-    .line.main { font-size: 15px; font-weight: 600; }
-    .line.action { font-size: 14px; font-weight: 600; padding: 6px 8px; border-radius: 6px; background: rgba(212,167,44,.18); }
+    .line.main { font-size: calc(15px * var(--s, 1)); font-weight: 600; }
+    .line.action { font-size: calc(14px * var(--s, 1)); font-weight: 600; padding: 6px 8px; border-radius: 6px; background: rgba(212,167,44,.18); }
     .more[hidden] { display: none; }
     .speak { border: 1px solid #d0d7de; background: #fff; color: #1f2328; border-radius: 14px; padding: 3px 10px;
-             cursor: pointer; font: 600 13px system-ui, "Nirmala UI", sans-serif; }
+             cursor: pointer; font: 600 calc(13px * var(--s, 1)) system-ui, "Nirmala UI", sans-serif; }
     .speakrow { margin: 2px 0 4px; }
-    .morebtn { border: 0; background: none; padding: 4px 0; cursor: pointer; font: 600 13px system-ui, sans-serif;
+    .morebtn { border: 0; background: none; padding: 4px 0; cursor: pointer; font: 600 calc(13px * var(--s, 1)) system-ui, sans-serif;
                color: #0969da; text-decoration: underline; }
     ul { margin: 4px 0; padding-left: 18px; }
     li { margin: 2px 0; }
@@ -67,12 +67,18 @@
     .tip.compact { z-index: 1; min-width: 0; max-width: var(--w, 320px); padding: 2px 8px;
                    border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.15); cursor: pointer; }
     .tip.compact::before { top: -5px; left: 12px; width: 8px; height: 8px; }
-    .tip.compact .head { margin: 0; font-weight: 500; font-size: 12px; }
+    .tip.compact .head { margin: 0; font-weight: 500; font-size: calc(13px * var(--s, 1)); }
     .tip.compact .ttl, .tip.compact .body { display: none; }
     .tip:not(.compact) .chip { display: none; }
     .chip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .head { cursor: default; } .tip.compact .head { cursor: pointer; }
     .head:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; border-radius: 4px; }
+    /* Live counter while typing: "Mobile number: 6 of 10 numbers" -> green when the count is right */
+    .hint { position: absolute; z-index: 2147483646; box-sizing: border-box; max-width: 320px; padding: 2px 10px;
+            border-radius: 12px; background: #fffdf5; color: #1f2328; border: 1px solid #e3b341;
+            font: 600 calc(13px * var(--s, 1))/1.5 system-ui, "Nirmala UI", sans-serif; pointer-events: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+    .hint.ok { background: #dafbe1; border-color: #1a7f37; color: #0b4a1f; }
     @keyframes fade { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; } }
     @media (prefers-color-scheme: dark) {
       .tip { background: #2d2a1e; color: #e6edf3; border-color: #9e6a03; }
@@ -80,11 +86,29 @@
       .example { color: #9da7b3; } .example code { background: #30363d; }
       .close { color: #9da7b3; } .foot { color: #9da7b3; }
       .morebtn { color: #58a6ff; }
+      .hint { background: #2d2a1e; color: #e6edf3; border-color: #9e6a03; }
+      .hint.ok { background: #12261a; color: #7ee787; border-color: #2ea043; }
     }
+    /* High-contrast mode (popup setting): plain black on white, thick borders, no tint */
+    :host([data-contrast]) .tip, :host([data-contrast]) .hint { background: #fff; color: #000; border: 2px solid #000; border-left-width: 6px; }
+    :host([data-contrast]) .line.action { background: #ffe08a; color: #000; }
+    :host([data-contrast]) .hint.ok { background: #b7f5c4; color: #000; border-color: #000; }
+    :host([data-contrast]) .morebtn { color: #0000ee; }
+    :host([data-contrast]) .foot, :host([data-contrast]) .example { color: #000; }
   `;
 
   let host = null, shadow = null;
   const tips = new Map(); // field element -> { box, signature }
+  const hints = new Map(); // field element -> { box }   (live counters while typing)
+  let prefs = { scale: 1, contrast: false };
+
+  function applyPrefs() {
+    if (!host) return;
+    host.style.setProperty('--s', String(prefs.scale));
+    if (prefs.contrast) host.setAttribute('data-contrast', ''); else host.removeAttribute('data-contrast');
+  }
+  /** Text size (1, 1.2, 1.4) and high contrast, from the popup settings. */
+  function setPrefs(p) { prefs = { ...prefs, ...p }; applyPrefs(); schedulePosition(); }
   let rafPending = false;
 
   function ensureHost() {
@@ -97,6 +121,7 @@
     style.textContent = STYLE;
     shadow.appendChild(style);
     document.documentElement.appendChild(host);
+    applyPrefs();
     try { root.speechSynthesis.getVoices(); } catch (e) { /* no speech support: the read-aloud button just won't show */ } // starts loading voices
     window.addEventListener('scroll', schedulePosition, { passive: true, capture: true });
     window.addEventListener('resize', schedulePosition, { passive: true });
@@ -147,6 +172,7 @@
    */
   function show(field, s, opts = {}) {
     ensureHost();
+    hideHint(field);                       // an error card replaces the live counter
     const existing = tips.get(field);
     if (existing && existing.signature === opts.signature) return existing.box; // nothing changed
     if (existing) existing.box.remove();
@@ -281,7 +307,31 @@
     requestAnimationFrame(() => {
       rafPending = false;
       for (const t of tips.values()) position(t.anchor, t.box);
+      for (const [f, h] of hints) positionHint(f, h.box);
     });
+  }
+
+  /** Live counter chip under a field while the user types. Skipped when an error card is already there. */
+  function hint(field, text, ok) {
+    if (tips.has(field)) return hideHint(field);
+    ensureHost();
+    let h = hints.get(field);
+    if (!h) { h = { box: el('div', 'hint') }; h.box.setAttribute('role', 'status'); shadow.appendChild(h.box); hints.set(field, h); }
+    h.box.textContent = text;
+    h.box.classList.toggle('ok', !!ok);
+    positionHint(field, h.box);
+  }
+  function hideHint(field) {
+    const h = hints.get(field);
+    if (h) { h.box.remove(); hints.delete(field); }
+  }
+  function positionHint(field, box) {
+    const r = field.getBoundingClientRect();
+    if (!field.isConnected || (r.width === 0 && r.height === 0)) { box.style.display = 'none'; return; }
+    box.style.display = '';
+    const maxLeft = document.documentElement.clientWidth - box.offsetWidth - 8;
+    box.style.left = Math.max(8, Math.min(r.left, maxLeft)) + window.scrollX + 'px';
+    box.style.top = r.bottom + window.scrollY + 4 + 'px';
   }
 
   function hide(field) {
@@ -294,10 +344,10 @@
     for (const field of [...tips.keys()]) if (!field.isConnected) hide(field);
   }
 
-  function hideAll() { for (const f of [...tips.keys()]) hide(f); }
+  function hideAll() { for (const f of [...tips.keys()]) hide(f); for (const f of [...hints.keys()]) hideHint(f); }
 
   FG.Tooltip = {
-    show, hide, hideAll, cleanup, reposition: schedulePosition,
+    show, hide, hideAll, cleanup, reposition: schedulePosition, hint, hideHint, setPrefs,
     isShown: (f) => tips.has(f),
     count: () => tips.size,
     isOurNode: (n) => n === host,

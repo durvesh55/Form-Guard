@@ -163,6 +163,43 @@
     };
   }
 
+  // Field types where a "6 of 10" counter makes sense
+  const COUNTABLE_TYPES = ['text', 'tel', 'number', 'password', 'search', ''];
+  // Rules whose length varies too much for a useful counter (a name can be 3 or 60 letters)
+  const NO_COUNTER = ['name', 'email', 'upi', 'date', 'amount', 'age', 'username', 'confirm-password', 'captcha'];
+
+  /**
+   * Counter shown WHILE the user types (before any error): "Mobile number: 6 of 10 numbers",
+   * "✓ 10 numbers" when the count is right. Uses only the typed LENGTH, like everything else here.
+   * Returns null when we don't know the field well enough to give a useful count.
+   */
+  function liveHint(ctx) {
+    const lang = ctx.lang === 'hi' ? 'hi' : 'en';
+    if (!COUNTABLE_TYPES.includes(ctx.type)) return null;
+    const match = findRule(ctx);
+    if (!match || NO_COUNTER.includes(match.rule.id)) return null;
+    const rule = match.rule;
+    const kind = rule.expect.kind;
+    const pick = (a, b) => (a != null ? a : b);
+    const min = pick(ctx.minLength, rule.expect.min);
+    const max = pick(ctx.maxLength, rule.expect.max);
+    if (min == null && max == null) return null;
+    const len = ctx.valueLength || 0;
+    const sep = kind === 'digits' && Number.isFinite(ctx.digitCount) ? Math.max(0, len - ctx.digitCount) : 0;
+    const n = len - sep;                                  // digits only for number fields
+    const title = ruleText(rule, lang).title;
+    const noun = (c) => I18N.noun(lang, kind, c);
+    const T = (k, p) => I18N.t(lang, k, { title, n, noun: noun(n), ...p });
+    const lo = min ?? 0, hi = max ?? Infinity;
+    let text, ok = false;
+    if (n > hi) text = T('hintOver', { over: n - hi, noun: noun(n - hi) });
+    else if (n >= lo && n <= hi) { text = T('hintOk'); ok = true; }
+    else if (hi >= 50) text = T('hintMin', { min: lo });                 // e.g. password: "at least 8"
+    else if (lo === hi) text = T('hintExact', { min: lo, noun: noun(lo) });
+    else text = T('hintRange', { min: lo, max: hi });
+    return { text, ok };
+  }
+
   function explain(ctx) {
     const lang = ctx.lang === 'hi' ? 'hi' : 'en';
     const T = (k, p) => I18N.t(lang, k, p);
@@ -224,6 +261,9 @@
     if (v.stepMismatch) actions.push(T('step'));
     if (v.badInput) actions.push(T('badInput'));
     if (countOk && !actions.length) actions.push(countOk);
+    // OTP and captcha expire or change: the practical next step ("press Resend", "refresh the picture")
+    // is worth more than any length advice, so it becomes the big "do this" line and leaves "More help".
+    if (rule && (rule.id === 'otp' || rule.id === 'captcha') && rt.tips[0]) actions.push(rt.tips[0]);
 
     // 4. What the field needs (the "main" line) + the longer explanation for "More help"
     let main, summary = '';
@@ -231,7 +271,7 @@
       main = rt.simple;
       if (rt.explain && rt.explain !== main) summary = rt.explain;
       if (pat && patOk) { const d = T('patternDetail', { text: pat.text }); if (d) details.push(d); }
-      rt.tips.slice(0, 2).forEach((x) => details.push(x));
+      rt.tips.slice(rule.id === 'otp' || rule.id === 'captcha' ? 1 : 0, 2).forEach((x) => details.push(x));
     } else if (pat) {
       main = T('patternNeeds', { text: pat.text });
     } else {
@@ -263,7 +303,7 @@
     };
   }
 
-  const api = { explain, findRule, normalise };
+  const api = { explain, findRule, normalise, liveHint };
   root.FormGuard = root.FormGuard || {};
   root.FormGuard.RuleEngine = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

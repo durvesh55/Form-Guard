@@ -1,0 +1,14 @@
+[
+  { "name": "Control: classic login (the-internet)", "url": "https://the-internet.herokuapp.com/login", "note": "Known-good baseline: a plain login form with a banner error." },
+  { "name": "IRCTC (train search + login)", "url": "https://www.irctc.co.in/nget/train-search", "open": "LOGIN" },
+  { "name": "UIDAI - My Aadhaar", "url": "https://myaadhaar.uidai.gov.in/" },
+  { "name": "Income Tax e-filing login", "url": "https://eportal.incometax.gov.in/iec/foservices/#/login" },
+  { "name": "DigiLocker", "url": "https://www.digilocker.gov.in/" },
+  { "name": "SBI online banking login", "url": "https://retail.onlinesbi.sbi/retail/login.htm" },
+  { "name": "National Scholarship Portal", "url": "https://scholarships.gov.in/" },
+  { "name": "Passport Seva login", "url": "https://www.passportindia.gov.in/AppOnlineProject/user/userLogin" },
+  { "name": "SSC", "url": "https://ssc.gov.in/" },
+  { "name": "EPFO member portal", "url": "https://unifiedportal-mem.epfindia.gov.in/memberinterface/" },
+  { "name": "PM-KISAN", "url": "https://pmkisan.gov.in/" },
+  { "name": "SAP SuccessFactors careers sign-in", "url": "https://career5.successfactors.eu/careers?company=EYHRISPRD1" }
+]

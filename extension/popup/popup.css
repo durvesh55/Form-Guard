@@ -61,3 +61,11 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .payload { margin: 4px 0 0; padding: 4px; background: var(--card); border-radius: 4px; white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0 0; }
 .row.small button { font-size: 12px; padding: 5px 9px; }
+
+.field-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; font-size: 14px; }
+select { background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; font: inherit; }
+
+/* High-contrast mode (setting): black on white, strong borders, no tinted backgrounds */
+body.hc { --bg: #fff; --fg: #000; --muted: #000; --line: #000; --card: #fff; --blue: #00008b; --green: #006400; --amber: #5c3d00; --red: #8b0000;
+          --ok-bg: #fff; --warn-bg: #fff; --info-bg: #fff; }
+body.hc .status-card, body.hc details, body.hc button { border-width: 2px; }

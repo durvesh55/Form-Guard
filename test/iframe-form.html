@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Form inside an iframe</title>
+  <style>
+    body { font: 15px system-ui, sans-serif; margin: 12px; background: #fff; color: #1f2328; }
+    label { display: block; font-weight: 600; margin-top: 10px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #888; border-radius: 6px; }
+    input[aria-invalid="true"] { border-color: #cf222e; }
+    .error-msg { color: #cf222e; font-size: 13px; }
+    button { margin-top: 12px; padding: 8px 14px; }
+  </style>
+</head>
+<body>
+  <form id="iframeForm" novalidate>
+    <label for="i-mobile">Mobile number</label>
+    <input id="i-mobile" name="mobile" value="98765">
+    <span class="error-msg" id="i-mobile-err"></span>
+    <label for="i-pin">PIN code</label>
+    <input id="i-pin" name="pin" value="4110">
+    <span class="error-msg" id="i-pin-err"></span>
+    <button type="button" id="iframeSubmit">Submit (inside iframe)</button>
+  </form>
+  <script>
+    document.getElementById('iframeSubmit').addEventListener('click', () => {
+      for (const [id, ok, msg] of [['i-mobile', /^[6-9]\d{9}$/, 'Invalid mobile'], ['i-pin', /^[1-9]\d{5}$/, 'Invalid PIN']]) {
+        const input = document.getElementById(id);
+        const bad = !ok.test(input.value);
+        input.setAttribute('aria-invalid', bad ? 'true' : 'false');
+        document.getElementById(id + '-err').textContent = bad ? msg : '';
+      }
+    });
+  </script>
+</body>
+</html>

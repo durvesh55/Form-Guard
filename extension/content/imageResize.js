@@ -97,6 +97,61 @@
     return { file: out, attempts, ms: Math.round(performance.now() - t0), width: w, height: h };
   }
 
+  /**
+   * Make the picture EXACTLY w x h pixels (many portals demand e.g. 200x230 for a photo), then, if a
+   * size limit is given, keep the pixel size and only lower the JPEG quality until it fits.
+   * If the picture's shape differs, the centre is kept and the edges are trimmed ("cover" crop), so
+   * nothing is stretched. Everything happens in memory on this device.
+   * @returns {Promise<{file, width, height, attempts, ms, cropped, tooBig}>}
+   */
+  async function fitToBox(file, W, H, opt = {}) {
+    const t0 = performance.now();
+    const type = pickOutputType(opt.accept, file.type);
+    const bitmap = await createImageBitmap(file);
+    const target = W / H, have = bitmap.width / bitmap.height;
+    let sw = bitmap.width, sh = bitmap.height, sx = 0, sy = 0;
+    if (have > target) { sw = Math.round(bitmap.height * target); sx = Math.round((bitmap.width - sw) / 2); }
+    else if (have < target) { sh = Math.round(bitmap.width / target); sy = Math.round((bitmap.height - sh) / 2); }
+    const cropped = Math.abs(have - target) / target > 0.02;
+
+    const canvas = makeCanvas(W, H);
+    const ctx = canvas.getContext('2d');
+    if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, W, H);
+    bitmap.close && bitmap.close();
+
+    const MIN_Q = 0.3, MAX_Q = 0.92;
+    const limit = opt.maxBytes ? Math.floor(opt.maxBytes * 0.97) : Infinity;
+    let attempts = 1;
+    let best = await encode(canvas, type, MAX_Q);
+    let tooBig = false;
+    if (best.size > limit && type !== 'image/png') {
+      const low = await encode(canvas, type, MIN_Q); attempts++;
+      if (low.size > limit) { best = low; tooBig = true; }       // cannot reach the limit at this pixel size
+      else {
+        best = low; let lo = MIN_Q, hi = MAX_Q;
+        for (let i = 0; i < 6; i++) {
+          const mid = (lo + hi) / 2;
+          const b = await encode(canvas, type, mid); attempts++;
+          if (b.size <= limit) { best = b; lo = mid; } else hi = mid;
+        }
+      }
+    } else if (best.size > limit) tooBig = true;
+    const ext = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'png' }[type];
+    const name = file.name.replace(/\.[^.]+$/, '') + '_resized.' + ext;
+    const out = new File([best], name, { type, lastModified: Date.now() });
+    return { file: out, width: W, height: H, attempts, ms: Math.round(performance.now() - t0), cropped, tooBig };
+  }
+
+  /** Width x height of an image, read in memory on this device (nothing is stored or sent). */
+  async function imageSize(file) {
+    const b = await createImageBitmap(file);
+    const size = { w: b.width, h: b.height };
+    b.close && b.close();
+    return size;
+  }
+
   /** Put a File back into an <input type=file> and tell the page it changed. */
   function replaceInputFile(input, file) {
     const dt = new DataTransfer();
@@ -107,5 +162,5 @@
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  FG.ImageResize = { compressToLimit, replaceInputFile, pickOutputType };
+  FG.ImageResize = { compressToLimit, fitToBox, imageSize, replaceInputFile, pickOutputType };
 })(globalThis);

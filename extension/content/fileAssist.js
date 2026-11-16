@@ -2,8 +2,10 @@
  * fileAssist.js — checks a selected file against the field's rules.
  *
  * Reads only FILE METADATA: size (bytes) and MIME type, plus the extension of
- * the name (used locally, never logged). File contents are only touched when
- * the user clicks "Resize for me", and even then they stay in the browser.
+ * the name (used locally, never logged). File contents are only decoded in memory
+ * (a) to read the picture's width x height, and ONLY when the site's own text asks for
+ * pixel dimensions, and (b) when the user clicks a fix button. Either way the picture
+ * stays in the browser: it is never stored, logged or sent anywhere.
  *
  * Where limits come from (in this order):
  *   data-max-size / data-maxsize / data-max-file-size / data-min-size attributes
@@ -50,6 +52,52 @@
     if (/(min|at least|more than|greater than)/.test(before)) return { min: sizes[0].bytes };
     return { max: sizes[0].bytes };
   }
+
+  /**
+   * Pixel size the site asks for, from free text: "200 x 230 pixels", "Max 140×60 px",
+   * "width 140 px, height 60 px". Needs a pixel word (px / pixels / dimensions / resolution) so
+   * "20 x 50 KB" or "35 x 45 mm" are not mistaken for it.  -> { w, h, mode: 'exact'|'max'|'min' } | null
+   */
+  function parseDimensionText(text) {
+    text = String(text || '');
+    let m = /width\D{0,15}(\d{2,4})\s*(?:px|pixels?)?\D{1,30}height\D{0,15}(\d{2,4})/i.exec(text);
+    let w, h, index;
+    if (m) { w = +m[1]; h = +m[2]; index = m.index; }
+    else {
+      if (!/\b(px|pixels?|dimensions?|resolution)\b/i.test(text)) return null;
+      m = /(\d{2,4})\s*(?:x|×|\*|by)\s*(\d{2,4})\s*(?:px|pixels?)?/i.exec(text);
+      if (!m) return null;
+      w = +m[1]; h = +m[2]; index = m.index;
+    }
+    const before = text.slice(Math.max(0, index - 30), index).toLowerCase();
+    const mode = /(max|maximum|not more than|up to|below|less than|within)/.test(before) ? 'max'
+      : /(min|minimum|at least)/.test(before) ? 'min' : 'exact';
+    return { w, h, mode };
+  }
+
+  function getDimLimit(input, errorText) {
+    const d = input.dataset || {};
+    if (+d.width > 0 && +d.height > 0) return { w: +d.width, h: +d.height, mode: 'exact' };
+    return parseDimensionText(errorText || '') || parseDimensionText(Dom.getHintText(input));
+  }
+
+  const dimCache = new WeakMap();   // File -> { w, h } | null   (decoded in memory, never stored)
+  const dimPending = new WeakSet();
+  function dimsOf(file, rerun) {
+    if (dimCache.has(file)) return dimCache.get(file);
+    if (!dimPending.has(file)) {
+      dimPending.add(file);
+      ImageResize.imageSize(file).then((d) => dimCache.set(file, d), () => dimCache.set(file, null)).then(rerun);
+    }
+    return undefined;                // not known yet; evaluate() runs again when it is
+  }
+
+  /** Common sizes, offered only when the site named no limit of its own. */
+  const PRESETS = [
+    { key: 'faPresetPhoto', w: 413, h: 531, max: 50 * 1024 },
+    { key: 'faPresetSign', w: 472, h: 236, max: 20 * 1024 },
+    { key: 'faPresetSmall', max: 100 * 1024 },
+  ];
 
   function getLimits(input, errorText) {
     const d = input.dataset || {};
@@ -118,9 +166,29 @@
     if (!max && lim.errorMentionsSize && errorText) max = DEFAULT_GUESS; // site said "too big" without a number
     if (max && file.size > max) problems.push(T('faTooBig', { size: fmt(file.size), max: fmt(max), guess: !lim.max }));
     if (lim.min && file.size < lim.min) problems.push(T('faTooSmall', { size: fmt(file.size), min: fmt(lim.min) }));
+
+    // Picture width x height — only when the site's own text names pixel dimensions
+    const dimLimit = resizable(file) ? getDimLimit(input, errorText) : null;
+    let dimFix = null;                       // { w, h } to resize to, when the picture does not match
+    if (dimLimit) {
+      const d = dimsOf(file, () => { if (input.files[0] === file) evaluate(input, errorText, audit); });
+      if (d) {
+        const p = { w: d.w, h: d.h, tw: dimLimit.w, th: dimLimit.h };
+        // The pixel size comes FIRST: it is the more basic problem, and the one fix button repairs both sizes.
+        if (dimLimit.mode === 'exact' && (d.w !== dimLimit.w || d.h !== dimLimit.h)) { problems.unshift(T('faDimBad', p)); dimFix = { w: dimLimit.w, h: dimLimit.h }; }
+        else if (dimLimit.mode === 'max' && (d.w > dimLimit.w || d.h > dimLimit.h)) {
+          const k = Math.min(dimLimit.w / d.w, dimLimit.h / d.h);
+          problems.unshift(T('faDimMax', p)); dimFix = { w: Math.round(d.w * k), h: Math.round(d.h * k) };
+        } else if (dimLimit.mode === 'min' && (d.w < dimLimit.w || d.h < dimLimit.h)) problems.unshift(T('faDimMin', p)); // never invent pixels
+      }
+    }
+
+    const presetsWanted = !problems.length && errorText && !lim.max && !lim.min && !dimLimit && resizable(file);
     if (!problems.length && errorText) problems.push(T('faLooksFine', { size: fmt(file.size) }));
 
-    audit({ kind: 'read', field: Dom.getLabelText(input) || 'file upload', items: ['file size', 'file type', 'accept attribute', errorText ? 'error text' : null].filter(Boolean), blocked: ['file contents', 'file name'] });
+    audit({ kind: 'read', field: Dom.getLabelText(input) || 'file upload',
+      items: ['file size', 'file type', 'accept attribute', errorText ? 'error text' : null, dimLimit ? 'picture width × height (decoded in memory only)' : null].filter(Boolean),
+      blocked: ['file contents stored or sent', 'file name'] });
 
     // "✓ Attached" chip — only for hidden inputs (a visible input already shows the name itself).
     // The name is shown on screen only, inside FormGuard's own box; it is never logged or sent.
@@ -146,24 +214,48 @@
       return false;
     }
 
+    // ---- fix buttons ----------------------------------------------------------------------
     const actions = [];
+    const finish = (msg, r, from) => {
+      FG._lastResize = FG._lastResize || new WeakMap();
+      FG._lastResize.set(input, { at: Date.now(), message: msg });
+      audit({ kind: 'local', field: Dom.getLabelText(input) || 'file upload', detail: `Image fixed locally ${fmt(from)} → ${fmt(r.file.size)} in ${r.ms} ms (${r.width}×${r.height}px). 0 bytes sent.`, resizeMs: r.ms });
+      ImageResize.replaceInputFile(input, r.file); // triggers 'change' -> evaluate() runs again
+      return msg;
+    };
+    const boxAction = (label, w, h, maxBytes) => ({
+      label,
+      onClick: async () => {
+        const r = await ImageResize.fitToBox(file, w, h, { accept, maxBytes });
+        return finish(T('faFixedDims', { w: r.width, h: r.height, to: fmt(r.file.size), cropped: r.cropped, tooBig: r.tooBig }), r, file.size);
+      },
+    });
+
     const needsSmaller = max && file.size > max;
     const outType = ImageResize.pickOutputType(accept, file.type);
     const convertible = !typeOk && resizable(file) && acceptOk({ name: 'x.' + outType.split('/')[1].replace('jpeg', 'jpg'), type: outType }, accept);
-    if (resizable(file) && (needsSmaller || convertible)) {
+    if (dimFix) {
+      // one button fixes the pixel size AND the file size together
+      actions.push(boxAction(T('faDimBtn', { tw: dimFix.w, th: dimFix.h }), dimFix.w, dimFix.h, lim.max || undefined));
+    } else if (resizable(file) && (needsSmaller || convertible)) {
       const label = needsSmaller ? T('faResizeBtn', { max: fmt(max) }) : T('faConvertBtn', { type: outType.split('/')[1].toUpperCase() });
       actions.push({
         label,
         onClick: async () => {
           const r = await ImageResize.compressToLimit(file, needsSmaller ? max : Infinity, { accept });
-          const msg = T('faFixed', { from: fmt(file.size), to: fmt(r.file.size) });
-          FG._lastResize = FG._lastResize || new WeakMap();
-          FG._lastResize.set(input, { at: Date.now(), message: msg });
-          audit({ kind: 'local', field: Dom.getLabelText(input) || 'file upload', detail: `Image compressed locally ${fmt(file.size)} → ${fmt(r.file.size)} in ${r.ms} ms (${r.width}×${r.height}px, ${r.attempts} steps). 0 bytes sent.`, resizeMs: r.ms });
-          ImageResize.replaceInputFile(input, r.file); // triggers 'change' -> evaluate() runs again
-          return msg;
+          return finish(T('faFixed', { from: fmt(file.size), to: fmt(r.file.size) }), r, file.size);
         },
       });
+    }
+    if (presetsWanted) {
+      PRESETS.forEach((pr) => actions.push({
+        label: T(pr.key),
+        onClick: async () => {
+          if (pr.w) { const r = await ImageResize.fitToBox(file, pr.w, pr.h, { accept, maxBytes: pr.max }); return finish(T('faFixedDims', { w: r.width, h: r.height, to: fmt(r.file.size), cropped: r.cropped, tooBig: r.tooBig }), r, file.size); }
+          const r = await ImageResize.compressToLimit(file, pr.max, { accept });
+          return finish(T('faFixed', { from: fmt(file.size), to: fmt(r.file.size) }), r, file.size);
+        },
+      }));
     }
 
     const lines = [{ kind: 'main', text: problems[0] }];
@@ -175,11 +267,12 @@
         : problems[0],
       lines,
       summary: T('faSelected', { label: sizeLabel }),
-      points: problems.slice(1),
+      points: [...problems.slice(1), ...(presetsWanted ? [T('faPresetNote')] : [])],
       source: 'file-check', ui, lang,
-    }, { kind: 'file', signature: [file.size, file.type, errorText, max, lang].join('|'), actions, keepOpen: actions.length > 0, anchor: anchorFor(input) });
+    }, { kind: 'file', signature: [file.size, file.type, errorText, max, dimFix && dimFix.w, presetsWanted, lang].join('|'), actions, keepOpen: actions.length > 0, anchor: anchorFor(input) });
     return true;
   }
 
-  FG.FileAssist = { evaluate, parseSizeText, acceptOk, fmt };
+  FG.FileAssist = { evaluate, parseSizeText, parseDimensionText, acceptOk, fmt };
+  if (typeof module !== 'undefined' && module.exports) module.exports = FG.FileAssist;
 })(globalThis);

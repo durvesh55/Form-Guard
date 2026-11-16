@@ -204,6 +204,42 @@ test('tooltip sentences: English and Hindi have identical keys, and file message
   assert.ok(!I.t('en', 'faTooBig', { size: '97 KB', max: '20 KB', guess: false }).includes('guess'));
 });
 
+test('live counter: counts digits, goes green at the right length, stays silent for unknown or free-length fields', () => {
+  const { liveHint } = require('../extension/lib/ruleEngine.js');
+  assert.deepStrictEqual(liveHint({ label: 'Mobile number', type: 'tel', valueLength: 6, digitCount: 6 }), { text: 'Mobile number: 6 of 10 numbers', ok: false });
+  assert.deepStrictEqual(liveHint({ label: 'Mobile number', type: 'tel', valueLength: 10, digitCount: 10 }), { text: 'Mobile number: ✓ 10 numbers', ok: true });
+  assert.strictEqual(liveHint({ label: 'Mobile number', type: 'tel', valueLength: 12, digitCount: 12 }).text, 'Mobile number: 12 numbers — remove 2');
+  // spaces/dashes are not counted: "1234 5678" is 8 numbers
+  assert.strictEqual(liveHint({ label: 'Aadhaar number', type: 'text', valueLength: 9, digitCount: 8 }).text, 'Aadhaar number: 8 of 12 numbers');
+  assert.strictEqual(liveHint({ label: 'Password', type: 'password', valueLength: 5 }).text, 'Password: 5 characters (at least 8)');
+  assert.ok(liveHint({ label: 'Aadhaar number', type: 'text', valueLength: 9, digitCount: 8, lang: 'hi' }).text.startsWith('आधार नंबर: 12 अंक में से 8'));
+  assert.strictEqual(liveHint({ label: 'Full Name', type: 'text', valueLength: 4 }), null);        // free length
+  assert.strictEqual(liveHint({ label: 'Email address', type: 'email', valueLength: 4 }), null);
+  assert.strictEqual(liveHint({ label: 'Widget code', type: 'text', valueLength: 4 }), null);      // unknown field
+  assert.strictEqual(liveHint({ label: 'Date of Birth', type: 'date', valueLength: 0 }), null);    // not countable
+  assert.strictEqual(liveHint({ label: 'PIN Code', type: 'text', valueLength: 3, maxLength: 4, minLength: 4 }).text, 'PIN code: 3 of 4 numbers'); // site attribute wins
+});
+
+test('OTP and captcha: the practical next step is the big "do this" line', () => {
+  const o = explain({ label: 'OTP', type: 'text', valueLength: 6, validity: { patternMismatch: true } });
+  assert.ok(o.lines.some((l) => l.kind === 'action' && l.text.includes('Resend OTP')), texts(o));
+  assert.ok(!o.points.some((p) => p.includes('Resend OTP')), 'must not repeat it in More help');
+  const c = explain({ label: 'Captcha', type: 'text', valueLength: 5, lang: 'hi', validity: { patternMismatch: true } });
+  assert.ok(c.lines.some((l) => l.kind === 'action' && l.text.includes('रिफ़्रेश')), texts(c));
+});
+
+test('picture size rule is read from the site text, but not from file sizes or centimetres', () => {
+  const { parseDimensionText: P } = require('../extension/content/fileAssist.js');
+  assert.deepStrictEqual(P('Photo size 200 x 230 pixels'), { w: 200, h: 230, mode: 'exact' });
+  assert.deepStrictEqual(P('Max 140×60 px'), { w: 140, h: 60, mode: 'max' });
+  assert.deepStrictEqual(P('width 140 px, height 60 px'), { w: 140, h: 60, mode: 'exact' });
+  assert.deepStrictEqual(P('Dimensions: min 300 x 300'), { w: 300, h: 300, mode: 'min' });
+  assert.strictEqual(P('Upload photo 20 KB to 50 KB'), null);
+  assert.strictEqual(P('size 3.5 x 4.5 cm'), null);
+  assert.strictEqual(P('Image should be 20 x 50 KB'), null);
+  assert.strictEqual(P(''), null);
+});
+
 test('unknown field asks for AI only when nothing local matches', () => {
   assert.strictEqual(explain({ label: 'Widget code', type: 'text', errorText: 'Invalid' }).needsAI, true);
   assert.strictEqual(explain({ label: 'Widget code', type: 'text', pattern: '[0-9]{3}' }).needsAI, false);

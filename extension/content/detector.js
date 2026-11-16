@@ -7,9 +7,11 @@
  *   scan(): for every visible field ─► detectError() ─► buildContext()
  *         ─► RuleEngine.explain() ─► Tooltip.show()  (+ audit log entry)
  *         ─► (optional) AI fallback via background, only sanitised metadata
+ *   typing: focus / input ─► RuleEngine.liveHint() ─► small counter under the field
  *
- * No polling: scans only run after a DOM mutation or a user event, and are
- * debounced (250 ms, max wait 1 s).
+ * Runs in every frame (iframes) and looks inside open shadow roots, because many portals
+ * put their forms there. No polling: scans only run after a DOM mutation or a user event,
+ * and are debounced (250 ms, max wait 1 s).
  */
 (function () {
   'use strict';
@@ -18,15 +20,18 @@
 
   const FG = globalThis.FormGuard;
   const { Dom, Tooltip, RuleEngine, Sanitizer, FileAssist } = FG;
+  const IS_TOP = window === window.top;
 
-  const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en' };
+  const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', liveHint: true, textSize: 'normal', contrast: false };
+  const TEXT_SCALE = { normal: 1, large: 1.2, xlarge: 1.4 };
   let settings = { ...DEFAULTS };
 
   const touched = new WeakSet();   // fields the user has interacted with
   const state = new WeakMap();     // field -> { editing, dismissedSig, aiSig }
   const aiCache = new Map();       // safe-payload JSON -> explanation
   const loggedKeys = new Set();    // avoid flooding the audit log
-  let lastErrorCount = -1;
+  const reportedUnknown = new Set();
+  let lastStatus = '';
   const getState = (el) => { let s = state.get(el); if (!s) state.set(el, (s = {})); return s; };
 
   // ---------------- messaging helpers (safe if extension was reloaded) -------------
@@ -44,6 +49,20 @@
     loggedKeys.add(key);
     send({ type: 'AUDIT', entry });
   }
+
+  // ---------------- finding fields (including inside open shadow roots) ------------
+  const shadowRoots = [];
+  const watched = new WeakSet();
+
+  /** All form fields on the page, plus any open shadow roots found on the way (which we then watch). */
+  function allFields() {
+    const found = Dom.queryAllDeep(Dom.FIELD_SELECTOR);
+    for (const r of found.roots) watchRoot(r);
+    return found.items;
+  }
+
+  /** The real element behind an event: inside a shadow root, `e.target` is only the host. */
+  const realTarget = (e) => (e.composedPath && e.composedPath()[0]) || e.target;
 
   // ---------------- error detection ------------------------------------------------
   function safeMatches(el, sel) { try { return el.matches(sel); } catch (e) { return false; } }
@@ -68,8 +87,9 @@
     const err = Dom.findErrorText(el);
     if (err && (err.strong || isTouched)) reasons.push('error-element');
     // Nothing on the field itself: look for a banner for the whole form ("Incorrect username or password")
-    if (!reasons.length && isTouched) {
-      const fe = Dom.findFormError(el);
+    // (also right after a page reload, when nothing is "touched" yet: stricter rules apply then)
+    if (!reasons.length && el.type !== 'file') {
+      const fe = Dom.findFormError(el, { untouched: !isTouched });
       if (fe) return { reasons: ['form-banner'], errorText: fe.text, formLevel: true };
     }
     if (!reasons.length) return null;
@@ -110,15 +130,16 @@
   function scan() {
     scanTimer = null; firstPendingAt = 0;
     if (!alive()) return shutdown();
-    if (!settings.enabled || !settings.tooltips) { Tooltip.hideAll(); return reportCount(0); }
+    if (!settings.enabled || !settings.tooltips) { Tooltip.hideAll(); return reportStatus(0, 0); }
     Tooltip.cleanup();
 
-    let errors = 0;
-    const fields = document.querySelectorAll(Dom.FIELD_SELECTOR);
+    let errors = 0, visible = 0;
+    const fields = allFields();
     for (let i = 0; i < fields.length && i < 400; i++) {
       const el = fields[i];
       const t0 = performance.now();
       if (!Dom.isVisible(el) && el.type !== 'file') { Tooltip.hide(el); continue; }
+      visible++;
 
       // File inputs with a chosen file -> file assistant
       if (el.type === 'file' && el.files && el.files.length) {
@@ -149,23 +170,43 @@
         blocked: ['typed value'], signals: det.reasons, latencyMs: Math.round((performance.now() - t0) * 10) / 10,
       });
 
+      if (s.needsAI) reportUnknown(ctx);
       if (s.needsAI && settings.aiEnabled && st.aiSig !== sig) requestAI(el, ctx, sig, s);
     }
-    reportCount(errors);
+    reportStatus(errors, visible);
+  }
+
+  /**
+   * A field no rule understood. Kept ONLY on this device (never sent) so the user can save a file of
+   * them and share it to improve the rules. Holds label / type / name / placeholder — never a value.
+   */
+  function reportUnknown(ctx) {
+    const field = {
+      label: Sanitizer.sanitizeText(ctx.label || '').clean.slice(0, 80),
+      type: ctx.type,
+      name: Sanitizer.sanitizeText(ctx.nameAttr || '').clean.slice(0, 80),
+      placeholder: Sanitizer.sanitizeText(ctx.placeholder || '').clean.slice(0, 80),
+    };
+    const key = [location.hostname, field.label, field.name].join('|');
+    if (reportedUnknown.has(key)) return;
+    reportedUnknown.add(key);
+    send({ type: 'UNKNOWN_FIELD', host: location.hostname, field });
   }
 
   /** How many form fields the user can see — lets the popup say "No form on this page". */
   function visibleFieldCount() {
     let n = 0;
-    const fields = document.querySelectorAll(Dom.FIELD_SELECTOR);
+    const fields = allFields();
     for (let i = 0; i < fields.length && i < 400; i++) if (Dom.isVisible(fields[i])) n++;
     return n;
   }
 
-  function reportCount(n) {
-    if (n === lastErrorCount) return;
-    lastErrorCount = n;
-    send({ type: 'ERROR_COUNT', count: n });
+  /** Tell the background how this FRAME is doing; it adds the frames up for the badge and the popup. */
+  function reportStatus(errors, fields) {
+    const key = errors + ':' + fields;
+    if (key === lastStatus) return;
+    lastStatus = key;
+    send({ type: 'FRAME_STATUS', errors, fields });
   }
 
   /** Optional AI fallback — only sanitised metadata goes to the background. */
@@ -193,6 +234,15 @@
     return s;
   }
 
+  // ---------------- live counter while typing -------------------------------------------
+  function showLive(el) {
+    if (!settings.enabled || !settings.liveHint || el.type === 'file') return;
+    const ctx = buildContext(el, '');
+    ctx.lang = settings.lang;
+    const h = RuleEngine.liveHint(ctx);
+    if (h) Tooltip.hint(el, h.text, h.ok); else Tooltip.hideHint(el);
+  }
+
   // ---------------- scheduling (debounce, no polling) --------------------------------
   let scanTimer = null, firstPendingAt = 0;
   function scheduleScan(delay = 250) {
@@ -205,40 +255,71 @@
 
   const isField = (t) => t && t.nodeType === 1 && t.matches && t.matches(Dom.FIELD_SELECTOR);
 
+  /**
+   * The part of the page a button belongs to: its <form>, or (many portals have no <form>) the nearest
+   * container that holds fields. Marking the WHOLE page would show errors on unrelated forms.
+   */
+  function formScope(btn) {
+    const form = btn.closest('form');
+    if (form) return form;
+    let c = btn.parentElement;
+    for (let depth = 0; c && depth < 8; depth++, c = c.parentElement) {
+      if (c.querySelector(Dom.FIELD_SELECTOR)) return c;
+    }
+    return document;
+  }
+
   function markFormTouched(root) {
-    (root || document).querySelectorAll(Dom.FIELD_SELECTOR).forEach((f) => touched.add(f));
+    Dom.queryAllDeep(Dom.FIELD_SELECTOR, root || document).items.forEach((f) => touched.add(f));
   }
 
   const listeners = {
-    focusout: (e) => { if (isField(e.target)) { touched.add(e.target); getState(e.target).editing = false; scheduleScan(); } },
+    focusin: (e) => { const t = realTarget(e); if (isField(t)) showLive(t); },
+    focusout: (e) => {
+      const t = realTarget(e);
+      if (!isField(t)) return;
+      Tooltip.hideHint(t);
+      touched.add(t); getState(t).editing = false; scheduleScan();
+    },
     input: (e) => {
-      if (!isField(e.target) || e.target.type === 'file') return;
-      getState(e.target).editing = true;      // dismiss while the user fixes it
-      Tooltip.hide(e.target);
+      const t = realTarget(e);
+      if (!isField(t) || t.type === 'file') return;
+      getState(t).editing = true;      // dismiss while the user fixes it
+      Tooltip.hide(t);
+      showLive(t);
       scheduleScan(400);
     },
-    invalid: (e) => { if (isField(e.target)) { touched.add(e.target); scheduleScan(50); } },
+    invalid: (e) => { const t = realTarget(e); if (isField(t)) { touched.add(t); scheduleScan(50); } },
     change: (e) => {
-      if (!isField(e.target)) return;
-      touched.add(e.target);
-      if (e.target.type === 'file') {
-        const err = Dom.findErrorText(e.target);
-        FileAssist.evaluate(e.target, err ? err.text : '', audit);
+      const t = realTarget(e);
+      if (!isField(t)) return;
+      touched.add(t);
+      if (t.type === 'file') {
+        const err = Dom.findErrorText(t);
+        FileAssist.evaluate(t, err ? err.text : '', audit);
         setTimeout(scheduleScan, 300); // the site's own validation may add an error later
       } else scheduleScan();
     },
     // Switching to this tab = "entering" this site: lets the background clear the previous site's activity.
-    visibilitychange: () => { if (document.visibilityState === 'visible') send({ type: 'SITE_ENTER', host: location.hostname }); },
+    // Only the TOP frame speaks for the site (an ad or payment iframe has a different host).
+    visibilitychange: () => { if (IS_TOP && document.visibilityState === 'visible') send({ type: 'SITE_ENTER', host: location.hostname }); },
     submit: (e) => { markFormTouched(e.target); scheduleScan(50); setTimeout(() => scheduleScan(50), 600); },
     click: (e) => {
       // Custom-validation sites often validate on a plain <button> click (no <form> submit)
-      const btn = e.target.closest && e.target.closest('button, input[type=submit], input[type=button], [role=button], a.btn');
+      const t = realTarget(e);
+      const btn = t && t.closest && t.closest('button, input[type=submit], input[type=button], [role=button], a.btn');
       if (!btn) return;
-      markFormTouched(btn.closest('form'));
+      markFormTouched(formScope(btn));
       scheduleScan(100); setTimeout(() => scheduleScan(50), 700);
     },
   };
+  // These do not cross a shadow boundary (they are not "composed"), so shadow roots need their own listeners.
+  const NON_COMPOSED = ['change', 'invalid', 'submit'];
 
+  const OBSERVE = {
+    subtree: true, childList: true, characterData: true, attributes: true,
+    attributeFilter: ['aria-invalid', 'class', 'style', 'hidden', 'aria-describedby', 'aria-errormessage'],
+  };
   const observer = new MutationObserver((mutations) => {
     const ours = (n) => Tooltip.isOurNode(n);
     const relevant = mutations.some((m) => !ours(m.target)
@@ -246,21 +327,40 @@
     if (relevant) scheduleScan();
   });
 
+  /** Start watching a shadow root (MutationObserver and events do not see into it from the document). */
+  function watchRoot(root) {
+    if (watched.has(root)) return;
+    watched.add(root);
+    shadowRoots.push(root);
+    observer.observe(root, OBSERVE);
+    for (const ev of NON_COMPOSED) root.addEventListener(ev, listeners[ev], true);
+  }
+
+  function applyPrefs() {
+    Tooltip.setPrefs({ scale: TEXT_SCALE[settings.textSize] || 1, contrast: !!settings.contrast });
+  }
+
   function start() {
     // Tell the background which site this is BEFORE any audit entry is written (messages keep their order).
     // Pages loading in a background tab stay quiet until their tab is shown (see visibilitychange).
-    if (document.visibilityState === 'visible') send({ type: 'SITE_ENTER', host: location.hostname });
+    if (IS_TOP) {
+      send({ type: 'FRAME_RESET' });
+      if (document.visibilityState === 'visible') send({ type: 'SITE_ENTER', host: location.hostname });
+    }
     for (const [ev, fn] of Object.entries(listeners)) document.addEventListener(ev, fn, true);
-    observer.observe(document.documentElement, {
-      subtree: true, childList: true, characterData: true, attributes: true,
-      attributeFilter: ['aria-invalid', 'class', 'style', 'hidden', 'aria-describedby', 'aria-errormessage'],
-    });
+    observer.observe(document.documentElement, OBSERVE);
+    window.addEventListener('pagehide', onPageHide);
+    applyPrefs();
     scheduleScan(0);
   }
+
+  function onPageHide() { if (alive()) chrome.runtime.sendMessage({ type: 'FRAME_STATUS', errors: 0, fields: 0, gone: true }).catch(() => {}); }
 
   function shutdown() {
     observer.disconnect();
     for (const [ev, fn] of Object.entries(listeners)) document.removeEventListener(ev, fn, true);
+    for (const r of shadowRoots) for (const ev of NON_COMPOSED) r.removeEventListener(ev, listeners[ev], true);
+    window.removeEventListener('pagehide', onPageHide);
     Tooltip.hideAll();
     window.__formGuardActive = false;
   }
@@ -271,10 +371,12 @@
     if (area !== 'local') return;
     for (const k of Object.keys(DEFAULTS)) if (changes[k]) settings[k] = changes[k].newValue;
     FG.lang = settings.lang;   // the file helper reads the language from here
+    applyPrefs();
     scheduleScan(0);
   });
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-    if (msg && msg.type === 'PING') reply({ active: true, errors: Math.max(0, lastErrorCount), fields: visibleFieldCount(), tooltips: Tooltip.count() });
-    if (msg && msg.type === 'RESCAN') { markFormTouched(); scan(); reply({ errors: Math.max(0, lastErrorCount), fields: visibleFieldCount() }); }
+    if (!msg) return;
+    if (msg.type === 'PING') reply({ active: true, errors: Math.max(0, lastStatus ? +lastStatus.split(':')[0] : 0), fields: visibleFieldCount(), tooltips: Tooltip.count() });
+    if (msg.type === 'RESCAN') { markFormTouched(); lastStatus = ''; scan(); reply({ errors: lastStatus ? +lastStatus.split(':')[0] : 0, fields: visibleFieldCount() }); }
   });
 })();

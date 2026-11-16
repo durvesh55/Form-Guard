@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Form with a permanent red note (must NOT be flagged as an error)</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 24px; max-width: 420px; }
+    .note { color: #c0392b; font-weight: 600; margin-bottom: 12px; }
+    label { display: block; margin-top: 10px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; }
+  </style>
+</head>
+<body>
+  <!-- Red text and the word "mandatory"/"required", but it is a legend, not an error -->
+  <div class="note error-note">Fields marked with * are mandatory and required for registration.</div>
+  <form action="#" onsubmit="return false">
+    <label for="n">Applicant name *</label><input id="n" name="name">
+    <label for="m">Mobile number *</label><input id="m" name="mobile">
+    <button type="submit">Register</button>
+  </form>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FormGuard privacy report</title>
+  <link rel="stylesheet" href="../popup/popup.css">
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img src="../icons/icon48.png" alt="" width="40" height="40">
+      <h1>FormGuard privacy report</h1>
+      <button id="print" type="button" class="primary">Print / save as PDF</button>
+    </header>
+    <p class="lead">Everything below is measured live from this browser. Nothing here is sent anywhere.</p>
+
+    <section id="net"><h2>1. Network requests made by FormGuard</h2><div id="netBody"></div></section>
+
+    <section>
+      <h2>2. What FormGuard reads, and never reads</h2>
+      <div class="cols">
+        <div class="card">
+          <h3>Reads (on your device only)</h3>
+          <ul>
+            <li>The field's <b>label</b>, type, name/id, placeholder and format attributes (pattern, min/max, required)</li>
+            <li>The website's own <b>error message</b> text (shown only on screen)</li>
+            <li>How many characters were typed: a <b>number</b>, never the characters</li>
+            <li>For a chosen file: its size and type. Its picture width and height only when the site asks for pixel sizes (decoded in memory, then forgotten)</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Never reads, stores or sends</h3>
+          <ul>
+            <li>What you type into any field (passwords, Aadhaar, PAN, OTP and so on)</li>
+            <li>File contents or file names (the name is shown on your screen only)</li>
+            <li>Your browsing history: it never lists your tabs or pages</li>
+            <li>Anything to a server, unless you switch on "AI help" (off by default; then only field names and error text, sanitised twice)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="speed"><h2>3. Speed</h2><div id="speedBody"></div></section>
+    <section id="perms"><h2>4. Permissions</h2><div id="permsBody"></div></section>
+    <section id="stored"><h2>5. What is stored on this device</h2><div id="storedBody"></div></section>
+
+    <section>
+      <h2>6. Check it yourself</h2>
+      <ol>
+        <li>Open any page with a form. Press <kbd>F12</kbd>, open the <b>Network</b> tab and tick "Preserve log".</li>
+        <li>Trigger some form errors and use the tooltips. Look at the "Initiator" column or filter by <code>chrome-extension://</code>.</li>
+        <li>You will see <b>zero</b> requests from FormGuard while "AI help" is off. The "Requests sent" row above stays at 0.</li>
+        <li>In <code>chrome://extensions</code>, open FormGuard, then <b>Details</b>: you can see and revoke every permission.</li>
+      </ol>
+    </section>
+  </main>
+  <script src="report.js"></script>
+</body>
+</html>

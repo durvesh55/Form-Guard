@@ -124,6 +124,31 @@
       <button type="button" id="loginE">Login</button>
     </div>
   </section>
+
+  <!-- ===================== F. Shadow DOM ===================== -->
+  <section class="card">
+    <h2>F. Form inside a web component (open Shadow DOM)</h2>
+    <p>The fields live inside a shadow root, which normal page searches cannot see. Click <b>Check</b> inside the box: expect a tooltip on Mobile number.</p>
+    <div id="shadowHost"></div>
+  </section>
+
+  <!-- ===================== G. iframe ===================== -->
+  <section class="card">
+    <h2>G. Form inside an iframe</h2>
+    <p>This form is a separate page embedded below. Click its <b>Submit</b> button: expect tooltips on both fields, and the toolbar badge to count them.</p>
+    <iframe id="formFrame" src="iframe-form.html" title="Form in an iframe" style="width:100%;height:260px;border:1px solid #888;border-radius:8px;background:#fff"></iframe>
+  </section>
+
+  <!-- ===================== H. Picture size in pixels ===================== -->
+  <section class="card">
+    <h2>H. Upload with a pixel-size rule</h2>
+    <p>This site wants the photo to be <b>exactly 200 × 230 pixels</b>. Generate a wrong-sized picture and use the fix button.</p>
+    <label for="h-photo">Applicant photo</label>
+    <input id="h-photo" name="applicantPhoto" type="file" accept=".jpg,.jpeg" data-max-size="50KB">
+    <div class="hint">JPG only. Size 200 x 230 pixels, maximum 50 KB.</div>
+    <span class="error-msg" id="h-photo-err"></span>
+    <button type="button" id="genDim">Generate 900 × 500 photo → Applicant photo</button>
+  </section>
 </main>
 
 <script>
@@ -236,6 +261,36 @@ document.getElementById('genPng').addEventListener('click', async () =>
   putFile(document.getElementById('d-photo'), await makeImage(600, 450, 'image/png', 1, 'my_photo.png')));
 document.getElementById('genSign').addEventListener('click', async () =>
   putFile(document.getElementById('d-sign'), await makeImage(900, 300, 'image/jpeg', 0.95, 'signature.jpg')));
+document.getElementById('genDim').addEventListener('click', async () =>
+  putFile(document.getElementById('h-photo'), await makeImage(900, 500, 'image/jpeg', 0.9, 'applicant.jpg')));
+siteFileCheck(document.getElementById('h-photo'), 'h-photo-err', 50, ['jpg', 'jpeg']);
+
+/* ---------- F: a web component with an OPEN shadow root ---------- */
+class ShadowForm extends HTMLElement {
+  connectedCallback() {
+    const root = this.attachShadow({ mode: 'open' });
+    root.innerHTML = `
+      <style>
+        label { display:block; font-weight:600; margin-top:8px; }
+        input { width:100%; box-sizing:border-box; padding:8px; border:1px solid #888; border-radius:6px; }
+        input[aria-invalid="true"] { border-color:#cf222e; }
+        .error-msg { color:#cf222e; font-size:13px; }
+        button { margin-top:10px; padding:8px 14px; }
+      </style>
+      <label for="s-mobile">Mobile number</label>
+      <input id="s-mobile" name="mobile" value="98765">
+      <span class="error-msg" id="s-err"></span>
+      <button type="button" id="s-check">Check</button>`;
+    root.getElementById('s-check').addEventListener('click', () => {
+      const input = root.getElementById('s-mobile');
+      const bad = !/^[6-9]\d{9}$/.test(input.value);
+      input.setAttribute('aria-invalid', bad ? 'true' : 'false');
+      root.getElementById('s-err').textContent = bad ? 'Invalid mobile' : '';
+    });
+  }
+}
+customElements.define('shadow-form', ShadowForm);
+document.getElementById('shadowHost').append(document.createElement('shadow-form'));
 </script>
 </body>
 </html>

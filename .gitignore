@@ -3,3 +3,7 @@ node_modules/
 .env.*
 *.log
 .DS_Store
+e2e/.build/
+e2e/sweep.log
+e2e/*.log
+e2e/sweep2.log

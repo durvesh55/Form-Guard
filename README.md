@@ -53,16 +53,35 @@ Load the extension: `chrome://extensions` → enable **Developer mode** → **Lo
 | `activeTab` | Run on the current tab only when you click the icon |
 | `scripting` | Inject the content scripts on that click |
 | `storage` | Save your toggles and the local audit log |
-| `optional_host_permissions` (`http(s)://*/*`) | Requested **per site**, only if you choose "Always run on this site" |
+| `optional_host_permissions` (`http(s)://*/*`) | **Optional.** Requested only when you press "Turn on help for all websites", so FormGuard can start by itself everywhere (including inside iframes). You can remove it any time in `chrome://extensions` |
 
-No `<all_urls>`, no `tabs`, no `webRequest`, no remote code.
+No `tabs`, no `webRequest`, no `history`, no remote code. Nothing is granted at install time beyond the three basic permissions.
 
 ## Privacy model
 
 - The extension **never reads what you type**. Only the *length* of a value is used. File **contents** are never uploaded.
 - Network access exists in exactly one place (`background.js → explainWithAI`) and refuses to run when **AI fallback is OFF** (the blocked attempt is logged: "0 bytes sent").
 - When ON, only `{ label, type, pattern, errorText, valueLength }` is sent, sanitised twice (extension and server). The server rejects any other key and does not store anything.
-- The audit log (last 300 events, `chrome.storage.local`) records every local action and every byte sent, so you can verify the claims yourself.
+- The audit log (last 300 events, `chrome.storage.local`) records every local action and every byte sent, so you can verify the claims yourself. When you move to a new website the per-field notes are cleared automatically, but `sent` / `blocked` entries are always kept.
+- A **live privacy report** (popup → More settings → Open privacy report) shows requests sent, bytes sent, speed in milliseconds, permissions and how to verify it in DevTools.
+- Picture width × height is read only when a site's text asks for pixel sizes, decoded in memory and forgotten. Boxes no rule understood are listed on this device only (label / type / name — never a value) and can be saved to a file if you choose.
+
+## Automated tests
+
+| Command | What it checks |
+|---|---|
+| `npm test` | 21 fast unit tests: rules, wording in English and Hindi, live counter, size parsing, audit-log pruning |
+| `npm run e2e` | 14 **real-browser** tests: Chromium loads the extension and drives `test/test-form.html` sections A–H (tooltips, Hindi, iframe, Shadow DOM, live counter, file fixes, popup, privacy report, zero network requests). First run downloads Chromium (`cd e2e && npm run setup`) |
+| `npm run e2e:sweep` | Visits real Indian portals listed in `e2e/sites.json` and writes a compatibility table to `docs/COMPATIBILITY.md` |
+
+`tools/make-test-build.js` makes the test copy of the extension (it starts by itself, because a robot cannot click the toolbar icon). The real `extension/` folder is never changed by it.
+
+## Documents
+
+- [`docs/PRIVACY.md`](docs/PRIVACY.md) — privacy policy
+- [`docs/DEMO.md`](docs/DEMO.md) — 6-minute demo script
+- [`docs/STORE_LISTING.md`](docs/STORE_LISTING.md) — Chrome Web Store draft, permission justifications, screenshot list
+- [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) — browsers, page types, real-portal sweep
 
 ## Manual test checklist
 
@@ -76,11 +95,13 @@ Open `npm run test-page` and verify:
 - [ ] Popup toggles (extension on/off, tooltips) take effect.
 - [ ] AI fallback OFF: audit log shows `blocked`, nothing leaves the browser (check DevTools → Network).
 - [ ] AI fallback ON + server running: unknown field gets a `server-heuristic` explanation, log shows `sent` with the sanitised payload.
-- [ ] "Always run on this site" prompts for that origin only; removing the permission stops auto-run.
+- [ ] "Turn on help for all websites" prompts once; removing the permission in `chrome://extensions` stops auto-run.
+- [ ] Section F (Shadow DOM), G (iframe) and H (picture 200 × 230 px) show tooltips / the fix button.
+- [ ] Focus a Mobile field and type: a counter "5 of 10 numbers" turns green at 10.
 
 ## IRCTC guide
 
-The rules include IRCTC-flavoured hints: user ID 3–35 characters (letters, digits, `_`, `.`), password 8–15 characters with upper/lower/digit/special, a captcha that is case-sensitive and refreshes on failure, and OTPs that expire quickly. To try it: open the IRCTC registration page, click the FormGuard icon, then **Check this page** (or grant "Always run on this site"). Photo/signature uploads with tight KB limits are where **Resize for me** helps most.
+The rules include IRCTC-flavoured hints: user ID 3–35 characters (letters, digits, `_`, `.`), password 8–15 characters with upper/lower/digit/special, a captcha that is case-sensitive and refreshes on failure, and OTPs that expire quickly. To try it: turn on help for all websites once, then open the IRCTC page and press LOGIN with empty or wrong fields (or click the FormGuard icon and **Check this page again**). Photo/signature uploads with tight KB limits are where **Resize for me** helps most.
 
 ## Phase 9 — Evaluation plan
 

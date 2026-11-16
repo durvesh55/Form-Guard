@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Login after a failed attempt (server-rendered)</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 24px; max-width: 420px; }
+    .flash { padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; }
+    .flash.error { background: #c0392b; color: #fff; }
+    label { display: block; margin-top: 10px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; }
+  </style>
+</head>
+<body>
+  <!-- Like many older portals: the page has ALREADY reloaded with the error shown; nothing was touched in this page -->
+  <div id="flash" class="flash error" role="alert">Your username is invalid!</div>
+  <form action="#" onsubmit="return false">
+    <label for="u">Username</label><input id="u" name="username">
+    <label for="p">Password</label><input id="p" name="password" type="password">
+    <button type="submit">Login</button>
+  </form>
+</body>
+</html>

@@ -38,12 +38,26 @@
     <summary data-i18n="adv"></summary>
 
     <label class="switch-line"><input type="checkbox" id="pause"> <span data-i18n="pause"></span></label>
+    <label class="switch-line"><input type="checkbox" id="liveHint"> <span data-i18n="liveHint"></span></label>
+    <label class="field-line"><span data-i18n="textSize"></span>
+      <select id="textSize">
+        <option value="normal" data-i18n="sizeNormal"></option>
+        <option value="large" data-i18n="sizeLarge"></option>
+        <option value="xlarge" data-i18n="sizeXLarge"></option>
+      </select>
+    </label>
+    <label class="switch-line"><input type="checkbox" id="contrast"> <span data-i18n="contrast"></span></label>
     <label class="switch-line"><input type="checkbox" id="autoClear"> <span><span data-i18n="autoClear"></span> <em data-i18n="autoClearNote"></em></span></label>
     <label class="switch-line"><input type="checkbox" id="aiEnabled"> <span><span data-i18n="ai"></span> <em data-i18n="aiNote"></em></span></label>
     <div id="aiBox" class="ai-box" hidden>
       <p data-i18n="aiBox"></p>
       <label><span data-i18n="server"></span> <input type="url" id="serverUrl" spellcheck="false"></label>
     </div>
+
+    <div class="row small"><button id="openReport" type="button" data-i18n="privacyReport"></button></div>
+    <p id="unknownLine" class="meta"></p>
+    <p class="meta" data-i18n="unknownNote"></p>
+    <div class="row small"><button id="exportUnknown" type="button" data-i18n="unknownSave"></button></div>
 
     <h2 data-i18n="logTitle"></h2>
     <p id="statLine" class="meta"></p>
