@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FormGuard</title>
+  <link rel="stylesheet" href="../popup/popup.css">
+  <link rel="stylesheet" href="welcome.css">
+</head>
+<body>
+  <main>
+    <img src="../icons/icon128.png" alt="" width="72" height="72">
+    <h1 data-i18n="wTitle"></h1>
+    <p class="lead" data-i18n="wLead"></p>
+
+    <h2 data-i18n="wStep1"></h2>
+    <div class="langs" role="group" aria-label="Language / भाषा">
+      <button type="button" data-lang="en" aria-pressed="true">English</button>
+      <button type="button" data-lang="hi" aria-pressed="false">हिन्दी</button>
+    </div>
+
+    <h2 data-i18n="wStep2"></h2>
+    <button id="turnOnBtn" type="button" class="primary big" data-i18n="turnOn"></button>
+    <p class="note" data-i18n="turnOnNote"></p>
+    <p id="done" class="done" hidden data-i18n="wDone"></p>
+    <p class="note" data-i18n="wSkip"></p>
+  </main>
+  <script src="../popup/popupText.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

@@ -1,9 +1,13 @@
 /**
- * popup.js — activates FormGuard on the current tab, manages settings and
- * renders the privacy audit log.
+ * popup.js — the small window under the toolbar icon.
  *
- * Opening the popup = a user gesture, so Chrome grants `activeTab` for this
- * tab. We use that to inject the content scripts with chrome.scripting.
+ * Design: ONE plain sentence about the current page, ONE big button only until help is
+ * switched on for all websites, and everything technical (settings, the log of what
+ * FormGuard did) tucked into "More settings". Every word comes from popupText.js and
+ * follows the chosen language (English / हिन्दी).
+ *
+ * Opening the popup is a user gesture, so Chrome grants `activeTab` for this tab and we
+ * can start the content scripts here when "all websites" is not on yet.
  */
 'use strict';
 
@@ -14,10 +18,30 @@ const CONTENT_FILES = [
 const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', autoClear: true, serverUrl: 'http://localhost:3000/explain' };
 const ALL_SITES = ['https://*/*', 'http://*/*'];
 const $ = (id) => document.getElementById(id);
-let tab = null;
+const UI = globalThis.FG_UI;
 
-// ---------------- activation ---------------------------------------------------------
-function setStatus(text, cls) { const s = $('status'); s.textContent = text; s.className = 'pill ' + (cls || ''); }
+let tab = null;
+let settings = { ...DEFAULTS };
+let allSites = false;
+let page = { kind: 'checking' };   // checking | na | blocked | ok
+const T = (key, params) => UI.t(settings.lang, key, params);
+
+// ---------------- status: one sentence about THIS page ------------------------------------
+function renderStatus() {
+  let cls = '', icon = '⏳', title = T('stChecking'), sub = '';
+  if (page.kind === 'na') { cls = 'off'; icon = 'ℹ️'; title = T('stNA'); sub = T('stNASub'); }
+  else if (page.kind === 'blocked') { cls = 'warn'; icon = '⚠️'; title = T('stBlocked'); sub = page.file ? T('stBlockedFile') : T('stBlockedOther'); }
+  else if (page.kind === 'ok') {
+    if (!settings.enabled) { cls = 'off'; icon = '⏸️'; title = T('stPaused'); sub = T('stPausedSub'); }
+    else if (page.errors > 0) { cls = 'warn'; icon = '💡'; title = T('stProblems', { n: page.errors }); sub = T('stProblemsSub'); }
+    else if (page.fields === 0) { cls = 'off'; icon = 'ℹ️'; title = T('stNoForms'); sub = T('stNoFormsSub'); }
+    else { cls = 'ok'; icon = '✅'; title = T('stOk'); sub = T('stOkSub'); }
+  }
+  $('statusCard').className = 'status-card ' + cls;
+  $('statusIcon').textContent = icon;
+  $('statusTitle').textContent = title;
+  $('statusSub').textContent = sub;
+}
 
 async function ping() {
   try { return await chrome.tabs.sendMessage(tab.id, { type: 'PING' }); } catch (e) { return null; }
@@ -26,69 +50,65 @@ async function ping() {
 async function activate() {
   [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url || /^(chrome|edge|about|chrome-extension|devtools):/.test(tab.url) || tab.url.startsWith('https://chromewebstore.google.com')) {
-    setStatus('Not available here', 'off');
-    $('rescan').disabled = true; $('alwaysOn').disabled = true;
+    page = { kind: 'na' }; renderStatus(); $('recheck').hidden = true;
     return;
   }
   let res = await ping();
   if (!res) {
     try {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_FILES });
+      await new Promise((r) => setTimeout(r, 500));   // let the first scan finish before we read the count
       res = await ping();
     } catch (e) {
-      setStatus('Cannot access page', 'off');
-      $('privacyLine').textContent = tab.url.startsWith('file:')
-        ? 'For local files: chrome://extensions → FormGuard → Details → enable "Allow access to file URLs", or serve the page with npm run test-page.'
-        : 'Chrome blocked access to this page: ' + e.message;
-      $('privacyLine').className = 'privacy warn';
+      page = { kind: 'blocked', file: tab.url.startsWith('file:') };
+      renderStatus(); $('recheck').hidden = true;
       return;
     }
   }
-  setStatus(res ? `Active · ${res.errors} issue${res.errors === 1 ? '' : 's'}` : 'Active', 'on');
-
-  // "Always run on this site" reflects whether we hold the optional host permission
-  if (await chrome.permissions.contains({ origins: ALL_SITES })) {
-    // already covered by "all websites" — the per-site switch would only confuse
-    $('alwaysOn').checked = true; $('alwaysOn').disabled = true;
-    $('alwaysOn').parentElement.title = 'Already on: FormGuard starts automatically on all websites.';
-  } else if (/^https?:/.test(tab.url)) {
-    const origin = new URL(tab.url).origin + '/*';
-    $('alwaysOn').checked = await chrome.permissions.contains({ origins: [origin] });
-    $('alwaysOn').addEventListener('change', async (e) => {
-      // background.js registers/unregisters the content scripts on permission change
-      if (e.target.checked) e.target.checked = await chrome.permissions.request({ origins: [origin] });
-      else await chrome.permissions.remove({ origins: [origin] });
-    });
-  } else $('alwaysOn').disabled = true;
+  page = { kind: 'ok', errors: res ? res.errors : 0, fields: res ? res.fields : 0 };
+  renderStatus();
 }
 
-$('rescan').addEventListener('click', async () => {
+$('recheck').addEventListener('click', async () => {
+  if (!tab) return;
   const res = await chrome.tabs.sendMessage(tab.id, { type: 'RESCAN' }).catch(() => null);
-  if (res) setStatus(`Active · ${res.errors} issue${res.errors === 1 ? '' : 's'}`, 'on');
+  if (res) { page = { kind: 'ok', errors: res.errors, fields: res.fields }; renderStatus(); }
+  else activate();
 });
 
-// ---------------- settings -------------------------------------------------------------
-async function loadSettings() {
-  const s = await chrome.storage.local.get(DEFAULTS);
-  $('tooltips').checked = s.tooltips;
-  $('lang').value = s.lang;
-  $('autoClear').checked = s.autoClear;
-  $('allSites').checked = await chrome.permissions.contains({ origins: ALL_SITES });
-  $('aiEnabled').checked = s.aiEnabled;
-  $('serverUrl').value = s.serverUrl;
-  $('aiBox').hidden = !s.aiEnabled;
-  return s;
-}
-$('tooltips').addEventListener('change', (e) => chrome.storage.local.set({ tooltips: e.target.checked }));
-$('autoClear').addEventListener('change', (e) => chrome.storage.local.set({ autoClear: e.target.checked }));
-// Needs a click (user gesture) so Chrome can ask once; background.js then registers the content scripts
-// for every site and starts them in tabs that are already open.
-$('allSites').addEventListener('change', async (e) => {
-  if (e.target.checked) e.target.checked = await chrome.permissions.request({ origins: ALL_SITES });
-  else await chrome.permissions.remove({ origins: ALL_SITES });
+// ---------------- "turn on for all websites" (only until it is on) ------------------------
+function renderTurnOn() { $('turnOnCard').hidden = allSites; }
+
+// Needs a click (user gesture) so Chrome can ask once; background.js then registers the content
+// scripts for every site and starts them in tabs that are already open.
+$('turnOnBtn').addEventListener('click', async () => {
+  allSites = await chrome.permissions.request({ origins: ALL_SITES });
+  renderTurnOn();
 });
-// Tooltips on open pages re-render in the new language right away (detector listens for storage changes)
-$('lang').addEventListener('change', (e) => chrome.storage.local.set({ lang: e.target.value }));
+
+// ---------------- language + settings -------------------------------------------------------
+function applyLang() {
+  document.documentElement.lang = settings.lang;
+  document.querySelectorAll('[data-i18n]').forEach((n) => { n.textContent = T(n.dataset.i18n); });
+  document.querySelectorAll('.langs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === settings.lang)));
+  renderStatus(); renderTurnOn(); renderLog();
+}
+
+function syncControls() {
+  $('pause').checked = !settings.enabled;
+  $('autoClear').checked = settings.autoClear;
+  $('aiEnabled').checked = settings.aiEnabled;
+  $('serverUrl').value = settings.serverUrl;
+  $('aiBox').hidden = !settings.aiEnabled;
+}
+
+document.querySelectorAll('.langs button').forEach((b) => b.addEventListener('click', () => {
+  settings.lang = b.dataset.lang;
+  chrome.storage.local.set({ lang: settings.lang });   // open pages re-render their tooltips right away
+  applyLang();
+}));
+$('pause').addEventListener('change', (e) => { settings.enabled = !e.target.checked; chrome.storage.local.set({ enabled: settings.enabled }); renderStatus(); });
+$('autoClear').addEventListener('change', (e) => chrome.storage.local.set({ autoClear: e.target.checked }));
 $('aiEnabled').addEventListener('change', (e) => {
   $('aiBox').hidden = !e.target.checked;
   chrome.storage.local.set({ aiEnabled: e.target.checked });
@@ -98,57 +118,43 @@ $('serverUrl').addEventListener('change', (e) => {
   catch (err) { e.target.value = DEFAULTS.serverUrl; }
 });
 
-// ---------------- audit log --------------------------------------------------------------
+// ---------------- "what FormGuard did" ----------------------------------------------------
 function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
 
 async function renderLog() {
-  const { auditLog = [], aiEnabled, serverUrl } = await chrome.storage.local.get({ auditLog: [], ...DEFAULTS });
-  const reads = auditLog.filter((e) => e.kind === 'read');
+  const { auditLog = [] } = await chrome.storage.local.get({ auditLog: [] });
+  const reads = auditLog.filter((e) => e.kind === 'read').length;
   const sent = auditLog.filter((e) => e.kind === 'sent');
-  const blocked = reads.reduce((n, e) => n + (e.blocked ? e.blocked.length : 0), 0) + auditLog.filter((e) => e.kind === 'blocked').length;
   const bytes = sent.reduce((n, e) => n + (e.bytes || 0), 0);
-  $('statRead').textContent = reads.length;
-  $('statBlocked').textContent = blocked;
-  $('statSent').textContent = sent.length;
-  $('statBytes').textContent = bytes;
+  $('statLine').textContent = T('stats', { reads, sent: sent.length, bytes });
 
   const line = $('privacyLine');
-  if (!line.classList.contains('warn') || line.dataset.auto) {
-    line.dataset.auto = '1';
-    if (aiEnabled) {
-      let host = serverUrl; try { host = new URL(serverUrl).host; } catch (e) { /* keep */ }
-      line.textContent = `⚠ AI fallback is ON — sanitised metadata may be sent to ${host} only when no rule matches.`;
-      line.className = 'privacy warn';
-    } else {
-      line.textContent = `✓ Default mode: zero network calls. ${bytes} bytes have ever been sent.`;
-      line.className = 'privacy';
-    }
-  }
+  if (settings.aiEnabled) {
+    let host = settings.serverUrl; try { host = new URL(settings.serverUrl).host; } catch (e) { /* keep */ }
+    line.textContent = T('privAI', { host }); line.className = 'privacy warn';
+  } else { line.textContent = T('privOk'); line.className = 'privacy'; }
 
-  const filter = $('filter').value;
   const list = $('log');
   list.textContent = '';
-  const items = auditLog.filter((e) => filter === 'all' || e.kind === filter).slice(-100).reverse();
-  if (!items.length) { list.append(el('li', 'empty', 'Nothing logged yet.')); return; }
+  const items = auditLog.slice(-50).reverse();
+  if (!items.length) { list.append(el('li', 'empty', T('logEmpty'))); return; }
   for (const e of items) {
-    const li = el('li');
-    li.append(el('span', 'tag ' + e.kind, e.kind.toUpperCase()), el('b', null, e.field || ''));
+    const li = el('li', e.kind);
     let text = e.detail || '';
-    if (e.kind === 'read') {
-      text = `Read: ${(e.items || []).join(', ')}.`;
-      if (e.blocked && e.blocked.length) text += ` Never read: ${e.blocked.join(', ')}.`;
+    if (e.kind === 'read') text = T('logRead', { field: e.field || e.host || '' });
+    else if (e.kind === 'blocked') text = T('logBlocked');
+    else if (e.kind === 'sent') {
+      const m = /to ([^\s(]+)/.exec(e.detail || '');
+      text = T('logSent', { bytes: e.bytes || 0, host: m ? m[1] : '' });
     }
     li.append(el('div', null, text));
-    const meta = [new Date(e.t).toLocaleTimeString(), e.host, e.ruleId && `rule: ${e.ruleId}`,
-      e.latencyMs != null && `${e.latencyMs} ms`, e.signals && `signals: ${e.signals.join(', ')}`].filter(Boolean).join(' · ');
-    li.append(el('div', 'meta', meta));
-    if (e.payload) li.append(el('pre', 'payload', 'Payload sent: ' + JSON.stringify(e.payload, null, 1)
+    li.append(el('div', 'meta', [new Date(e.t).toLocaleTimeString(), e.host].filter(Boolean).join(' · ')));
+    if (e.payload) li.append(el('pre', 'payload', JSON.stringify(e.payload, null, 1)
       + (e.removed && e.removed.length ? `\nPII removed: ${e.removed.map((r) => `${r.type}×${r.count}`).join(', ')}` : '')));
     list.append(li);
   }
 }
 
-$('filter').addEventListener('change', renderLog);
 $('clearLog').addEventListener('click', () => chrome.storage.local.set({ auditLog: [] }));
 $('exportLog').addEventListener('click', async () => {
   const { auditLog = [] } = await chrome.storage.local.get('auditLog');
@@ -156,9 +162,20 @@ $('exportLog').addEventListener('click', async () => {
   const a = el('a'); a.href = url; a.download = `formguard-audit-${Date.now()}.json`; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.auditLog || changes.aiEnabled || changes.serverUrl)) renderLog();
+
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== 'local') return;
+  if (changes.lang || changes.enabled || changes.aiEnabled || changes.serverUrl || changes.autoClear) {
+    settings = await chrome.storage.local.get(DEFAULTS);
+    syncControls(); applyLang();
+  } else if (changes.auditLog) renderLog();
 });
 
-loadSettings().then(renderLog);
-activate();
+// ---------------- start ----------------------------------------------------------------------
+(async function init() {
+  settings = await chrome.storage.local.get(DEFAULTS);
+  allSites = await chrome.permissions.contains({ origins: ALL_SITES });
+  syncControls();
+  applyLang();
+  activate();
+})();

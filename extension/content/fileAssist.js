@@ -88,8 +88,14 @@
 
   const resizable = (file) => /^image\/(jpeg|png|webp|bmp)$/.test(file.type);
 
+  const hiddenInput = (input) => !Dom.isVisible(input);
+  const shortName = (n) => (n.length > 28 ? n.slice(0, 14) + '…' + n.slice(-11) : n);
+
   /**
    * Evaluate the file input and show a tooltip if something is wrong.
+   * Many sites hide the real <input type=file> behind a styled button, so the browser shows no file
+   * name at all. FormGuard therefore keeps a small "✓ Attached: name (size)" chip so the user can SEE
+   * that the file is chosen, and is told what to do next (click the site's own Upload / Submit).
    * @param {HTMLInputElement} input
    * @param {string} errorText    the site's error text ('' if none)
    * @param {function} audit      audit logger from detector.js
@@ -98,29 +104,45 @@
   function evaluate(input, errorText, audit) {
     const file = input.files && input.files[0];
     if (!file) { Tooltip.hide(input); return false; }
+    const lang = FG.lang === 'hi' ? 'hi' : 'en';
+    const T = (k, p) => FG.I18n.t(lang, k, p);
+    const ui = FG.I18n.ui(lang);
     const accept = input.getAttribute('accept') || '';
     const lim = getLimits(input, errorText);
     const problems = [];
     const typeOk = acceptOk(file, accept);
     const sizeLabel = `${(extOf(file.name) || file.type || 'unknown').toUpperCase()}, ${fmt(file.size)}`;
 
-    if (!typeOk) problems.push(`This field accepts only ${describeAccept(accept)}. Your file is ${(extOf(file.name) || file.type).toUpperCase()}.`);
+    if (!typeOk) problems.push(T('faTypeBad', { allowed: describeAccept(accept), ext: (extOf(file.name) || file.type).toUpperCase() }));
     let max = lim.max;
     if (!max && lim.errorMentionsSize && errorText) max = DEFAULT_GUESS; // site said "too big" without a number
-    if (max && file.size > max) problems.push(`Your file is ${fmt(file.size)}, but the limit is ${fmt(max)}${lim.max ? '' : ' (guessed — the site did not state a limit)'}.`);
-    if (lim.min && file.size < lim.min) problems.push(`Your file is ${fmt(file.size)}, but it must be at least ${fmt(lim.min)}. Use a clearer / higher-resolution scan.`);
-    if (!problems.length && errorText) {
-      problems.push(`Size (${fmt(file.size)}) and type look fine, so the site may check something else — for example photo dimensions (width × height in pixels) or the file name.`);
-    }
+    if (max && file.size > max) problems.push(T('faTooBig', { size: fmt(file.size), max: fmt(max), guess: !lim.max }));
+    if (lim.min && file.size < lim.min) problems.push(T('faTooSmall', { size: fmt(file.size), min: fmt(lim.min) }));
+    if (!problems.length && errorText) problems.push(T('faLooksFine', { size: fmt(file.size) }));
 
     audit({ kind: 'read', field: Dom.getLabelText(input) || 'file upload', items: ['file size', 'file type', 'accept attribute', errorText ? 'error text' : null].filter(Boolean), blocked: ['file contents', 'file name'] });
+
+    // "✓ Attached" chip — only for hidden inputs (a visible input already shows the name itself).
+    // The name is shown on screen only, inside FormGuard's own box; it is never logged or sent.
+    const showAttached = () => {
+      if (input.files[0] !== file || !hiddenInput(input)) return;
+      Tooltip.show(input, {
+        title: T('faAttachedTitle'), headline: `${shortName(file.name)} (${fmt(file.size)})`,
+        lines: [{ kind: 'main', text: T('faAttached', { name: shortName(file.name), size: fmt(file.size) }) }],
+        source: 'on-device', ui, lang,
+      }, { kind: 'file', compact: true, signature: ['att', file.name, file.size, lang].join('|'), anchor: anchorFor(input) });
+    };
 
     if (!problems.length) {
       const st = FG._lastResize && FG._lastResize.get(input);
       if (st && Date.now() - st.at < 5000) {
-        Tooltip.show(input, { title: 'File fixed', summary: st.message, source: 'on-device canvas' }, { kind: 'file', signature: 'ok' + st.at, anchor: anchorFor(input) });
-        setTimeout(() => Tooltip.hide(input), 6000);
-      } else Tooltip.hide(input);
+        Tooltip.show(input, {
+          title: T('faFixedTitle'), lines: [{ kind: 'main', text: st.message }],
+          source: 'on-device canvas', ui, lang,
+        }, { kind: 'file', signature: 'ok' + st.at + lang, anchor: anchorFor(input) });
+        setTimeout(() => { if (hiddenInput(input)) showAttached(); else Tooltip.hide(input); }, 8000);
+      } else if (hiddenInput(input)) showAttached();
+      else Tooltip.hide(input);
       return false;
     }
 
@@ -129,31 +151,33 @@
     const outType = ImageResize.pickOutputType(accept, file.type);
     const convertible = !typeOk && resizable(file) && acceptOk({ name: 'x.' + outType.split('/')[1].replace('jpeg', 'jpg'), type: outType }, accept);
     if (resizable(file) && (needsSmaller || convertible)) {
-      const label = needsSmaller ? `Resize for me (to under ${fmt(max)})` : `Convert to ${outType.split('/')[1].toUpperCase()}`;
+      const label = needsSmaller ? T('faResizeBtn', { max: fmt(max) }) : T('faConvertBtn', { type: outType.split('/')[1].toUpperCase() });
       actions.push({
         label,
         onClick: async () => {
           const r = await ImageResize.compressToLimit(file, needsSmaller ? max : Infinity, { accept });
-          const msg = `Resized on your device: ${fmt(file.size)} → ${fmt(r.file.size)} (${r.width}×${r.height}px, ${r.attempts} step${r.attempts > 1 ? 's' : ''}, ${r.ms} ms). Nothing was uploaded by FormGuard.`;
+          const msg = T('faFixed', { from: fmt(file.size), to: fmt(r.file.size) });
           FG._lastResize = FG._lastResize || new WeakMap();
           FG._lastResize.set(input, { at: Date.now(), message: msg });
-          audit({ kind: 'local', field: Dom.getLabelText(input) || 'file upload', detail: `Image compressed locally ${fmt(file.size)} → ${fmt(r.file.size)} in ${r.ms} ms. 0 bytes sent.`, resizeMs: r.ms });
+          audit({ kind: 'local', field: Dom.getLabelText(input) || 'file upload', detail: `Image compressed locally ${fmt(file.size)} → ${fmt(r.file.size)} in ${r.ms} ms (${r.width}×${r.height}px, ${r.attempts} steps). 0 bytes sent.`, resizeMs: r.ms });
           ImageResize.replaceInputFile(input, r.file); // triggers 'change' -> evaluate() runs again
           return msg;
         },
       });
     }
 
+    const lines = [{ kind: 'main', text: problems[0] }];
+    if (accept) lines.push({ kind: 'action', text: T('faAllowed', { types: describeAccept(accept), max: lim.max ? fmt(lim.max) : '', min: lim.min ? fmt(lim.min) : '' }) });
     Tooltip.show(input, {
-      title: 'File not accepted',
-      headline: !typeOk ? `only ${describeAccept(accept)} allowed` + (actions.length ? ' — open to fix' : '')
-        : needsSmaller ? `${fmt(file.size)}, limit ${fmt(max)}` + (actions.length ? ' — open to resize' : '')
+      title: T('faNotOk'),
+      headline: !typeOk ? T('faHeadType', { allowed: describeAccept(accept), fix: actions.length > 0 })
+        : needsSmaller ? T('faHeadSize', { size: fmt(file.size), max: fmt(max), fix: actions.length > 0 })
         : problems[0],
-      summary: `Selected file: ${sizeLabel}.`,
-      points: problems,
-      example: accept ? `Allowed: ${describeAccept(accept)}${lim.max ? ` · max ${fmt(lim.max)}` : ''}${lim.min ? ` · min ${fmt(lim.min)}` : ''}` : '',
-      source: 'file-check',
-    }, { kind: 'file', signature: [file.size, file.type, errorText, max].join('|'), actions, anchor: anchorFor(input) });
+      lines,
+      summary: T('faSelected', { label: sizeLabel }),
+      points: problems.slice(1),
+      source: 'file-check', ui, lang,
+    }, { kind: 'file', signature: [file.size, file.type, errorText, max, lang].join('|'), actions, anchor: anchorFor(input) });
     return true;
   }
 

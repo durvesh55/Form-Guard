@@ -74,7 +74,26 @@
       fsExpired: 'Your session may have timed out — refresh the page and try again.',
       fsLocked: 'The account looks locked — wait for the lock time or use the site\'s reset option.',
       fsNone: 'This message is about the whole form, not one box. Read it and check the boxes below it.',
+      // file upload helper
+      faNotOk: 'File not accepted',
+      faFixedTitle: 'File is ready',
+      faFixed: (p) => `Done! The picture is now ${p.to} (it was ${p.from}). Now click the website's Upload or Submit button.`,
+      faAttachedTitle: '✓ File attached',
+      faAttached: (p) => `✓ Attached: ${p.name} (${p.size}). Now click the website's Upload or Submit button.`,
+      faSelected: (p) => `Selected file: ${p.label}.`,
+      faTypeBad: (p) => `This box accepts only ${p.allowed}. Your file is ${p.ext}.`,
+      faTooBig: (p) => `Your file is ${p.size}, but the limit is ${p.max}${p.guess ? ' (a guess — the site did not say)' : ''}.`,
+      faTooSmall: (p) => `Your file is ${p.size}, but it must be at least ${p.min}. Use a clearer scan.`,
+      faLooksFine: (p) => `Size (${p.size}) and type look fine, so the site may check something else — for example the picture's width × height, or the file name.`,
+      faResizeBtn: (p) => `Make it smaller for me (under ${p.max})`,
+      faConvertBtn: (p) => `Change it to ${p.type}`,
+      faHeadType: (p) => `only ${p.allowed} allowed${p.fix ? ' — open to fix' : ''}`,
+      faHeadSize: (p) => `${p.size}, limit ${p.max}${p.fix ? ' — open to make smaller' : ''}`,
+      faAllowed: (p) => `Allowed: ${p.types}${p.max ? ` · up to ${p.max}` : ''}${p.min ? ` · at least ${p.min}` : ''}`,
+      uiWorking: 'Working…',
       // tooltip buttons
+      uiRead: 'Read aloud', uiStop: 'Stop',
+      uiNoVoice: 'This device has no offline voice for this language.',
       uiMore: 'More help', uiLess: 'Hide help', uiExample: 'Example', uiDismiss: 'Close',
       uiOnDevice: 'Checked on your device — nothing was sent anywhere.',
     },
@@ -136,6 +155,24 @@
       fsExpired: 'आपका सेशन खत्म हो गया होगा — पेज रिफ़्रेश करके दोबारा कोशिश कीजिए।',
       fsLocked: 'खाता बंद (लॉक) लग रहा है — कुछ देर रुकिए या साइट का रीसेट विकल्प इस्तेमाल कीजिए।',
       fsNone: 'यह संदेश पूरे फ़ॉर्म के बारे में है, किसी एक खाने के बारे में नहीं। इसे पढ़िए और नीचे के खाने जाँचिए।',
+      faNotOk: 'फ़ाइल मंज़ूर नहीं हुई',
+      faFixedTitle: 'फ़ाइल तैयार है',
+      faFixed: (p) => `हो गया! तस्वीर अब ${p.to} की है (पहले ${p.from} की थी)। अब वेबसाइट का Upload या Submit बटन दबाइए।`,
+      faAttachedTitle: '✓ फ़ाइल जुड़ गई',
+      faAttached: (p) => `✓ जुड़ गई: ${p.name} (${p.size})। अब वेबसाइट का Upload या Submit बटन दबाइए।`,
+      faSelected: (p) => `चुनी हुई फ़ाइल: ${p.label}।`,
+      faTypeBad: (p) => `इस खाने में सिर्फ़ ${p.allowed} चलती है। आपकी फ़ाइल ${p.ext} है।`,
+      faTooBig: (p) => `आपकी फ़ाइल ${p.size} की है, पर सीमा ${p.max} है${p.guess ? ' (अंदाज़ा — साइट ने बताया नहीं)' : ''}।`,
+      faTooSmall: (p) => `आपकी फ़ाइल ${p.size} की है, पर कम से कम ${p.min} होनी चाहिए। ज़्यादा साफ़ स्कैन लीजिए।`,
+      faLooksFine: (p) => `साइज़ (${p.size}) और प्रकार ठीक लग रहे हैं, इसलिए साइट शायद कुछ और जाँच रही है — जैसे तस्वीर की चौड़ाई × ऊँचाई या फ़ाइल का नाम।`,
+      faResizeBtn: (p) => `मेरे लिए छोटी कर दीजिए (${p.max} से कम)`,
+      faConvertBtn: (p) => `${p.type} में बदलिए`,
+      faHeadType: (p) => `सिर्फ़ ${p.allowed} चलती है${p.fix ? ' — ठीक करने के लिए खोलिए' : ''}`,
+      faHeadSize: (p) => `${p.size}, सीमा ${p.max}${p.fix ? ' — छोटी करने के लिए खोलिए' : ''}`,
+      faAllowed: (p) => `चलेगी: ${p.types}${p.max ? ` · ज़्यादा से ज़्यादा ${p.max}` : ''}${p.min ? ` · कम से कम ${p.min}` : ''}`,
+      uiWorking: 'हो रहा है…',
+      uiRead: 'सुनिए', uiStop: 'रोकिए',
+      uiNoVoice: 'इस डिवाइस में इस भाषा की ऑफ़लाइन आवाज़ नहीं है।',
       uiMore: 'और मदद', uiLess: 'मदद छुपाइए', uiExample: 'उदाहरण', uiDismiss: 'बंद करें',
       uiOnDevice: 'आपके अपने डिवाइस पर ही जाँचा गया — कुछ भी कहीं भेजा नहीं गया।',
     },
@@ -162,10 +199,11 @@
     return {
       more: t(lang, 'uiMore'), less: t(lang, 'uiLess'), example: t(lang, 'uiExample'),
       dismiss: t(lang, 'uiDismiss'), onDevice: t(lang, 'uiOnDevice'),
+      read: t(lang, 'uiRead'), stop: t(lang, 'uiStop'), noVoice: t(lang, 'uiNoVoice'), working: t(lang, 'uiWorking'),
     };
   }
 
-  const api = { t, noun, ui, LANGS };
+  const api = { t, noun, ui, LANGS, _S: S }; // _S: exposed for the unit tests only
   root.FormGuard = root.FormGuard || {};
   root.FormGuard.I18n = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

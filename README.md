@@ -30,6 +30,8 @@ Load the extension: `chrome://extensions` → enable **Developer mode** → **Lo
 | `extension/background.js` | Service worker: audit log, toolbar badge, the **only** network code, auto-run registration |
 | `extension/lib/sanitizer.js` | Strips PII (Aadhaar, PAN, phone, email, card-like numbers…) from any outgoing payload |
 | `extension/lib/rules.js` | JSON-style rule table for Indian form fields |
+| `extension/popup/popupText.js` | Every word of the popup and welcome page, English + Hindi |
+| `extension/welcome/` | One-time first-run page: pick a language, turn on help for all websites |
 | `extension/lib/rulesText.js` | Plain-language one-liners and Hindi wording for each rule, keyed by rule id |
 | `extension/lib/i18n.js` | Every sentence the engine can say, in English and Hindi |
 | `extension/lib/ruleEngine.js` | Matches a field to a rule and checks the value shape by length only |

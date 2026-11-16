@@ -154,6 +154,14 @@
     reportCount(errors);
   }
 
+  /** How many form fields the user can see — lets the popup say "No form on this page". */
+  function visibleFieldCount() {
+    let n = 0;
+    const fields = document.querySelectorAll(Dom.FIELD_SELECTOR);
+    for (let i = 0; i < fields.length && i < 400; i++) if (Dom.isVisible(fields[i])) n++;
+    return n;
+  }
+
   function reportCount(n) {
     if (n === lastErrorCount) return;
     lastErrorCount = n;
@@ -258,14 +266,15 @@
   }
 
   // ---------------- settings + popup messages ---------------------------------------
-  chrome.storage.local.get(DEFAULTS).then((s) => { settings = s; start(); });
+  chrome.storage.local.get(DEFAULTS).then((s) => { settings = s; FG.lang = s.lang; start(); });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     for (const k of Object.keys(DEFAULTS)) if (changes[k]) settings[k] = changes[k].newValue;
+    FG.lang = settings.lang;   // the file helper reads the language from here
     scheduleScan(0);
   });
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-    if (msg && msg.type === 'PING') reply({ active: true, errors: Math.max(0, lastErrorCount), tooltips: Tooltip.count() });
-    if (msg && msg.type === 'RESCAN') { markFormTouched(); scan(); reply({ errors: lastErrorCount }); }
+    if (msg && msg.type === 'PING') reply({ active: true, errors: Math.max(0, lastErrorCount), fields: visibleFieldCount(), tooltips: Tooltip.count() });
+    if (msg && msg.type === 'RESCAN') { markFormTouched(); scan(); reply({ errors: Math.max(0, lastErrorCount), fields: visibleFieldCount() }); }
   });
 })();

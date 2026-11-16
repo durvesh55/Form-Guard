@@ -18,9 +18,14 @@ const CONTENT_FILES = [
 ];
 const MAX_LOG = 300;
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   const current = await chrome.storage.local.get(Object.keys(DEFAULTS));
-  await chrome.storage.local.set({ ...DEFAULTS, ...current }); // keep user's choices on update
+  const first = details.reason === 'install';
+  // First install: start in Hindi when the browser itself is set to Hindi
+  const lang = first && /^hi\b/i.test(chrome.i18n.getUILanguage()) ? 'hi' : DEFAULTS.lang;
+  await chrome.storage.local.set({ ...DEFAULTS, lang, ...current }); // keep user's choices on update
+  // First install: a one-time welcome page (language + turn on help). Nothing is requested without a click.
+  if (first) chrome.tabs.create({ url: chrome.runtime.getURL('welcome/welcome.html') });
 });
 
 // ---------------- 1. audit log (serialised writes so entries are never lost) -------------

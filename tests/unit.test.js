@@ -169,6 +169,41 @@ test('site switch clears read/local notes but never sent/blocked entries', () =>
   assert.strictEqual(pruneForSiteSwitch([{ kind: 'sent' }]).removed, 0);
 });
 
+test('popup + welcome text: English and Hindi have the same keys, and every data-i18n key exists', () => {
+  require('../extension/popup/popupText.js');
+  const { S } = globalThis.FG_UI;
+  assert.deepStrictEqual(Object.keys(S.hi).sort(), Object.keys(S.en).sort());
+  for (const k of Object.keys(S.hi)) {
+    if (typeof S.hi[k] === 'string') assert.ok(DEVANAGARI.test(S.hi[k]), `Hindi text for "${k}" has no Hindi: ${S.hi[k]}`);
+  }
+  const fs = require('node:fs');
+  for (const f of ['popup/popup.html', 'welcome/welcome.html']) {
+    const html = fs.readFileSync(require('node:path').join(__dirname, '..', 'extension', f), 'utf8');
+    for (const m of html.matchAll(/data-i18n="(\w+)"/g)) assert.ok(m[1] in S.en, `${f}: unknown text key ${m[1]}`);
+  }
+  assert.strictEqual(globalThis.FG_UI.t('hi', 'stProblems', { n: 2 }), '2 गलती मिली');
+  assert.strictEqual(globalThis.FG_UI.t('en', 'stProblems', { n: 1 }), '1 problem found');
+  assert.strictEqual(globalThis.FG_UI.t('fr', 'stOk'), 'No problems found');   // unknown language -> English
+});
+
+test('tooltip speech labels exist in both languages', () => {
+  const a = explain({ label: 'PIN Code', type: 'text', valueLength: 4, lang: 'en' }).ui;
+  const b = explain({ label: 'PIN Code', type: 'text', valueLength: 4, lang: 'hi' }).ui;
+  assert.strictEqual(a.read, 'Read aloud');
+  assert.ok(DEVANAGARI.test(b.read) && DEVANAGARI.test(b.stop) && DEVANAGARI.test(b.noVoice));
+});
+
+test('tooltip sentences: English and Hindi have identical keys, and file messages read well', () => {
+  const I = require('../extension/lib/i18n.js');
+  assert.deepStrictEqual(Object.keys(I._S.hi).sort(), Object.keys(I._S.en).sort());
+  const en = I.t('en', 'faFixed', { from: '97 KB', to: '19 KB' });
+  assert.ok(/Upload or Submit/.test(en) && !/nothing was uploaded/i.test(en), en);   // must not read like a failure
+  assert.ok(DEVANAGARI.test(I.t('hi', 'faFixed', { from: '97 KB', to: '19 KB' })));
+  assert.ok(I.t('en', 'faAttached', { name: 'sig.jpg', size: '19 KB' }).includes('sig.jpg'));
+  assert.ok(I.t('hi', 'faTooBig', { size: '97 KB', max: '20 KB', guess: true }).includes('अंदाज़ा'));
+  assert.ok(!I.t('en', 'faTooBig', { size: '97 KB', max: '20 KB', guess: false }).includes('guess'));
+});
+
 test('unknown field asks for AI only when nothing local matches', () => {
   assert.strictEqual(explain({ label: 'Widget code', type: 'text', errorText: 'Invalid' }).needsAI, true);
   assert.strictEqual(explain({ label: 'Widget code', type: 'text', pattern: '[0-9]{3}' }).needsAI, false);

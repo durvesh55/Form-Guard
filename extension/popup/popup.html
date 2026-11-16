@@ -7,65 +7,54 @@
 </head>
 <body>
   <header>
-    <img src="../icons/icon32.png" alt="" width="24" height="24">
+    <img src="../icons/icon32.png" alt="" width="28" height="28">
     <h1>FormGuard</h1>
-    <span id="status" class="pill">Checking…</span>
+    <div class="langs" role="group" aria-label="Language / भाषा">
+      <button type="button" data-lang="en" aria-pressed="true">English</button>
+      <button type="button" data-lang="hi" aria-pressed="false">हिन्दी</button>
+    </div>
   </header>
 
-  <section class="stats" aria-label="Privacy summary">
-    <div><b id="statRead">0</b><span>fields analysed</span></div>
-    <div><b id="statBlocked">0</b><span>values never read</span></div>
-    <div><b id="statSent">0</b><span>server requests</span></div>
-    <div><b id="statBytes">0</b><span>bytes sent</span></div>
+  <!-- 1. One plain sentence about THIS page -->
+  <section id="statusCard" class="status-card" aria-live="polite">
+    <div id="statusIcon" class="status-icon" aria-hidden="true">…</div>
+    <div>
+      <div id="statusTitle" class="status-title"></div>
+      <div id="statusSub" class="status-sub"></div>
+    </div>
   </section>
+
+  <!-- 2. Shown only until "all websites" is on -->
+  <section id="turnOnCard" class="turnon" hidden>
+    <button id="turnOnBtn" type="button" class="primary big" data-i18n="turnOn"></button>
+    <p class="note" data-i18n="turnOnNote"></p>
+  </section>
+
   <p id="privacyLine" class="privacy"></p>
-  <p id="accessNote" class="privacy warn" hidden></p>
+  <button id="recheck" type="button" class="link" data-i18n="recheck"></button>
 
-  <section class="row">
-    <button id="rescan" class="primary">Check this page now</button>
-    <label class="switch-line" title="Lets FormGuard start automatically on this website (asks for permission)">
-      <input type="checkbox" id="alwaysOn"> Always run on this site
-    </label>
-  </section>
-  <label class="switch-line auto-all" title="Chrome asks once. After that FormGuard starts by itself on every website — no clicking. It still only reads field labels and error messages, never what you type, and sends nothing anywhere.">
-    <input type="checkbox" id="allSites"> <b>Start automatically on all websites</b>
-  </label>
+  <!-- 3. Everything else, out of the way -->
+  <details id="adv">
+    <summary data-i18n="adv"></summary>
 
-  <details open>
-    <summary>Settings</summary>
-    <label class="switch-line"><input type="checkbox" id="tooltips"> Show suggestions under fields</label>
-    <label class="switch-line"><input type="checkbox" id="autoClear"> Clear old activity when I move to a new website <em>(network entries are always kept)</em></label>
-    <label class="switch-line">Language / भाषा
-      <select id="lang" aria-label="Language / भाषा">
-        <option value="en">English</option>
-        <option value="hi">हिन्दी (Hindi)</option>
-      </select>
-    </label>
-    <label class="switch-line"><input type="checkbox" id="aiEnabled"> AI fallback for unknown errors <em>(off = zero network calls)</em></label>
+    <label class="switch-line"><input type="checkbox" id="pause"> <span data-i18n="pause"></span></label>
+    <label class="switch-line"><input type="checkbox" id="autoClear"> <span><span data-i18n="autoClear"></span> <em data-i18n="autoClearNote"></em></span></label>
+    <label class="switch-line"><input type="checkbox" id="aiEnabled"> <span><span data-i18n="ai"></span> <em data-i18n="aiNote"></em></span></label>
     <div id="aiBox" class="ai-box" hidden>
-      <p>Only <code>{label, type, pattern, errorText, valueLength}</code> is sent, after removing emails, phone numbers, Aadhaar/PAN/IFSC-like text and quoted values. Typed values are never sent.</p>
-      <label>Server URL <input type="url" id="serverUrl" spellcheck="false"></label>
+      <p data-i18n="aiBox"></p>
+      <label><span data-i18n="server"></span> <input type="url" id="serverUrl" spellcheck="false"></label>
+    </div>
+
+    <h2 data-i18n="logTitle"></h2>
+    <p id="statLine" class="meta"></p>
+    <ul id="log"></ul>
+    <div class="row small">
+      <button id="exportLog" type="button" data-i18n="exportLog"></button>
+      <button id="clearLog" type="button" data-i18n="clearLog"></button>
     </div>
   </details>
 
-  <section class="log">
-    <div class="log-head">
-      <h2>Privacy audit log</h2>
-      <select id="filter" aria-label="Filter log">
-        <option value="all">All</option>
-        <option value="read">Read</option>
-        <option value="blocked">Blocked</option>
-        <option value="sent">Sent</option>
-        <option value="local">On-device actions</option>
-      </select>
-    </div>
-    <ul id="log"></ul>
-    <div class="row small">
-      <button id="exportLog">Export JSON</button>
-      <button id="clearLog">Clear log</button>
-    </div>
-  </section>
-
+  <script src="popupText.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

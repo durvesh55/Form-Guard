@@ -42,6 +42,9 @@
     .line.main { font-size: 15px; font-weight: 600; }
     .line.action { font-size: 14px; font-weight: 600; padding: 6px 8px; border-radius: 6px; background: rgba(212,167,44,.18); }
     .more[hidden] { display: none; }
+    .speak { border: 1px solid #d0d7de; background: #fff; color: #1f2328; border-radius: 14px; padding: 3px 10px;
+             cursor: pointer; font: 600 13px system-ui, "Nirmala UI", sans-serif; }
+    .speakrow { margin: 2px 0 4px; }
     .morebtn { border: 0; background: none; padding: 4px 0; cursor: pointer; font: 600 13px system-ui, sans-serif;
                color: #0969da; text-decoration: underline; }
     ul { margin: 4px 0; padding-left: 18px; }
@@ -94,8 +97,38 @@
     style.textContent = STYLE;
     shadow.appendChild(style);
     document.documentElement.appendChild(host);
+    try { root.speechSynthesis.getVoices(); } catch (e) { /* no speech support: the read-aloud button just won't show */ } // starts loading voices
     window.addEventListener('scroll', schedulePosition, { passive: true, capture: true });
     window.addEventListener('resize', schedulePosition, { passive: true });
+  }
+
+  /**
+   * "🔊 Read aloud" for people who find reading hard. Uses ONLY voices installed on this device
+   * (localService): Chrome's online voices would send the text to a server, and FormGuard
+   * promises nothing leaves the device. No local voice for the language -> a short message.
+   */
+  function speakControl(s, ui) {
+    const wrap = el('div', 'speakrow');
+    const synth = root.speechSynthesis;
+    if (!synth || typeof root.SpeechSynthesisUtterance === 'undefined') return wrap;
+    const label = () => '🔊 ' + (ui.read || 'Read aloud');
+    const btn = el('button', 'speak', label());
+    const msg = el('div', 'status err');
+    btn.addEventListener('click', () => {
+      if (synth.speaking) { synth.cancel(); btn.textContent = label(); return; }
+      msg.textContent = '';
+      const want = s.lang === 'hi' ? 'hi' : 'en';
+      const local = synth.getVoices().filter((v) => v.localService && v.lang.toLowerCase().startsWith(want));
+      const voice = local.find((v) => /-in$/i.test(v.lang)) || local[0];
+      if (!voice) { msg.textContent = ui.noVoice || 'This device has no offline voice for this language.'; return; }
+      const u = new root.SpeechSynthesisUtterance(s.lines.map((l) => l.text).join(' '));
+      u.voice = voice; u.lang = voice.lang; u.rate = 0.9;
+      u.onend = u.onerror = () => { btn.textContent = label(); };
+      btn.textContent = '⏹ ' + (ui.stop || 'Stop');
+      synth.speak(u);
+    });
+    wrap.append(btn, msg);
+    return wrap;
   }
 
   /** Small helper to build elements safely (textContent only — never innerHTML). */
@@ -152,7 +185,7 @@
     if (simple) {
       const lines = el('div', 'lines');
       s.lines.forEach((l) => lines.append(el('p', 'line ' + l.kind, l.text)));
-      body.append(lines);
+      body.append(lines, speakControl(s, ui));
     }
     const addExample = (parent) => {
       if (!s.example) return;
@@ -174,7 +207,7 @@
       opts.actions.forEach((a) => {
         const b = el('button', 'btn', a.label);
         b.addEventListener('click', async () => {
-          b.disabled = true; status.className = 'status'; status.textContent = 'Working…';
+          b.disabled = true; status.className = 'status'; status.textContent = ui.working || 'Working…';
           try { status.textContent = (await a.onClick()) || 'Done.'; }
           catch (e) { status.className = 'status err'; status.textContent = e.message || String(e); b.disabled = false; }
         });
