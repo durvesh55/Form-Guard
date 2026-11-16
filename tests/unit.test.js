@@ -143,6 +143,19 @@ test('every rule has Hindi wording, and unknown languages fall back to English',
   assert.strictEqual(s.title, 'PIN code');
 });
 
+test('site switch clears read/local notes but never sent/blocked entries', () => {
+  const { pruneForSiteSwitch } = require('../extension/lib/auditLog.js');
+  const log = [
+    { kind: 'read', host: 'a.com' }, { kind: 'local', host: 'a.com' },
+    { kind: 'sent', host: 'a.com', bytes: 104 }, { kind: 'blocked', host: 'a.com' }, { kind: 'read', host: 'a.com' },
+  ];
+  const { kept, removed } = pruneForSiteSwitch(log);
+  assert.strictEqual(removed, 3);
+  assert.deepStrictEqual(kept.map((e) => e.kind), ['sent', 'blocked']);
+  assert.deepStrictEqual(pruneForSiteSwitch(undefined), { kept: [], removed: 0 });
+  assert.strictEqual(pruneForSiteSwitch([{ kind: 'sent' }]).removed, 0);
+});
+
 test('unknown field asks for AI only when nothing local matches', () => {
   assert.strictEqual(explain({ label: 'Widget code', type: 'text', errorText: 'Invalid' }).needsAI, true);
   assert.strictEqual(explain({ label: 'Widget code', type: 'text', pattern: '[0-9]{3}' }).needsAI, false);

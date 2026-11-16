@@ -27,10 +27,14 @@
       <input type="checkbox" id="alwaysOn"> Always run on this site
     </label>
   </section>
+  <label class="switch-line auto-all" title="Chrome asks once. After that FormGuard starts by itself on every website — no clicking. It still only reads field labels and error messages, never what you type, and sends nothing anywhere.">
+    <input type="checkbox" id="allSites"> <b>Start automatically on all websites</b>
+  </label>
 
   <details open>
     <summary>Settings</summary>
     <label class="switch-line"><input type="checkbox" id="tooltips"> Show suggestions under fields</label>
+    <label class="switch-line"><input type="checkbox" id="autoClear"> Clear old activity when I move to a new website <em>(network entries are always kept)</em></label>
     <label class="switch-line">Language / भाषा
       <select id="lang" aria-label="Language / भाषा">
         <option value="en">English</option>

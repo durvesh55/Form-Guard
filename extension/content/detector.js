@@ -219,6 +219,8 @@
         setTimeout(scheduleScan, 300); // the site's own validation may add an error later
       } else scheduleScan();
     },
+    // Switching to this tab = "entering" this site: lets the background clear the previous site's activity.
+    visibilitychange: () => { if (document.visibilityState === 'visible') send({ type: 'SITE_ENTER', host: location.hostname }); },
     submit: (e) => { markFormTouched(e.target); scheduleScan(50); setTimeout(() => scheduleScan(50), 600); },
     click: (e) => {
       // Custom-validation sites often validate on a plain <button> click (no <form> submit)
@@ -237,6 +239,9 @@
   });
 
   function start() {
+    // Tell the background which site this is BEFORE any audit entry is written (messages keep their order).
+    // Pages loading in a background tab stay quiet until their tab is shown (see visibilitychange).
+    if (document.visibilityState === 'visible') send({ type: 'SITE_ENTER', host: location.hostname });
     for (const [ev, fn] of Object.entries(listeners)) document.addEventListener(ev, fn, true);
     observer.observe(document.documentElement, {
       subtree: true, childList: true, characterData: true, attributes: true,

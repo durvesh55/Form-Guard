@@ -45,3 +45,6 @@ select { background: var(--card); color: var(--fg); border: 1px solid var(--line
 .tag.sent { background: var(--red); } .tag.local { background: var(--violet); }
 .meta { color: var(--muted); font-size: 11px; }
 .payload { margin: 4px 0 0; padding: 4px; background: var(--card); border-radius: 4px; white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 10px; }
+
+/* Prominent "start automatically" switch */
+.auto-all { margin: 8px 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }

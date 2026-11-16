@@ -9,9 +9,9 @@
  *   4. "Always run on this site": register content scripts when the user grants
  *      an optional host permission, unregister when it is removed.
  */
-importScripts('lib/sanitizer.js');
+importScripts('lib/sanitizer.js', 'lib/auditLog.js');
 
-const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', serverUrl: 'http://localhost:3000/explain' };
+const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', autoClear: true, serverUrl: 'http://localhost:3000/explain' };
 const CONTENT_FILES = [
   'lib/sanitizer.js', 'lib/rules.js', 'lib/rulesText.js', 'lib/i18n.js', 'lib/regexToEnglish.js', 'lib/ruleEngine.js',
   'content/dom.js', 'content/tooltip.js', 'content/imageResize.js', 'content/fileAssist.js', 'content/detector.js',
@@ -33,6 +33,25 @@ function appendAudit(entry) {
     await chrome.storage.local.set({ auditLog });
   }).catch((e) => console.warn('[FormGuard] audit write failed', e));
   return writeQueue;
+}
+
+// ---------------- 1b. new website -> clear the old activity automatically ----------------
+// Content scripts say "SITE_ENTER" when a page starts or its tab becomes visible. If the host differs
+// from the last one we saw, drop the old per-field notes (network entries are always kept).
+function enterSite(host) {
+  writeQueue = writeQueue.then(async () => {
+    const { lastHost } = await chrome.storage.session.get('lastHost');
+    if (lastHost === host) return;
+    await chrome.storage.session.set({ lastHost: host });
+    const { autoClear } = await chrome.storage.local.get({ autoClear: true });
+    if (!autoClear) return;
+    const { auditLog = [] } = await chrome.storage.local.get('auditLog');
+    const { kept, removed } = FormGuard.AuditLog.pruneForSiteSwitch(auditLog);
+    if (!removed) return;
+    kept.push({ kind: 'local', host, field: '', t: Date.now(),
+      detail: `Earlier activity cleared automatically because you moved to ${host}. Network activity (sent / blocked) is always kept.` });
+    await chrome.storage.local.set({ auditLog: kept });
+  }).catch((e) => console.warn('[FormGuard] auto-clear failed', e));
 }
 
 // ---------------- 3. optional AI fallback ------------------------------------------------
@@ -75,6 +94,7 @@ async function explainWithAI(rawPayload, host) {
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!msg || !msg.type) return;
   if (msg.type === 'AUDIT') { appendAudit(msg.entry); return; }
+  if (msg.type === 'SITE_ENTER' && typeof msg.host === 'string' && msg.host) { enterSite(msg.host); return; }
   if (msg.type === 'ERROR_COUNT' && sender.tab) {
     // 2. badge
     chrome.action.setBadgeText({ tabId: sender.tab.id, text: msg.count ? String(msg.count) : '' });
@@ -97,6 +117,14 @@ chrome.permissions.onAdded.addListener(async ({ origins = [] }) => {
       appendAudit({ kind: 'local', host: origin, field: '', detail: `Auto-run enabled for ${origin}` });
     } catch (e) { /* already registered */ }
   }
+  // Registered scripts only run on pages loaded from now on. Start them in tabs that are already open
+  // (we hold the permission now), so turning auto-run on works without reloading anything.
+  try {
+    const tabs = await chrome.tabs.query({ url: origins });
+    for (const t of tabs) {
+      chrome.scripting.executeScript({ target: { tabId: t.id }, files: CONTENT_FILES }).catch(() => { /* page not allowed */ });
+    }
+  } catch (e) { /* no tab access */ }
 });
 chrome.permissions.onRemoved.addListener(async ({ origins = [] }) => {
   const ids = origins.map(scriptId);

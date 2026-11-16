@@ -11,7 +11,8 @@ const CONTENT_FILES = [
   'lib/sanitizer.js', 'lib/rules.js', 'lib/rulesText.js', 'lib/i18n.js', 'lib/regexToEnglish.js', 'lib/ruleEngine.js',
   'content/dom.js', 'content/tooltip.js', 'content/imageResize.js', 'content/fileAssist.js', 'content/detector.js',
 ];
-const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', serverUrl: 'http://localhost:3000/explain' };
+const DEFAULTS = { enabled: true, tooltips: true, aiEnabled: false, lang: 'en', autoClear: true, serverUrl: 'http://localhost:3000/explain' };
+const ALL_SITES = ['https://*/*', 'http://*/*'];
 const $ = (id) => document.getElementById(id);
 let tab = null;
 
@@ -46,7 +47,11 @@ async function activate() {
   setStatus(res ? `Active · ${res.errors} issue${res.errors === 1 ? '' : 's'}` : 'Active', 'on');
 
   // "Always run on this site" reflects whether we hold the optional host permission
-  if (/^https?:/.test(tab.url)) {
+  if (await chrome.permissions.contains({ origins: ALL_SITES })) {
+    // already covered by "all websites" — the per-site switch would only confuse
+    $('alwaysOn').checked = true; $('alwaysOn').disabled = true;
+    $('alwaysOn').parentElement.title = 'Already on: FormGuard starts automatically on all websites.';
+  } else if (/^https?:/.test(tab.url)) {
     const origin = new URL(tab.url).origin + '/*';
     $('alwaysOn').checked = await chrome.permissions.contains({ origins: [origin] });
     $('alwaysOn').addEventListener('change', async (e) => {
@@ -67,12 +72,21 @@ async function loadSettings() {
   const s = await chrome.storage.local.get(DEFAULTS);
   $('tooltips').checked = s.tooltips;
   $('lang').value = s.lang;
+  $('autoClear').checked = s.autoClear;
+  $('allSites').checked = await chrome.permissions.contains({ origins: ALL_SITES });
   $('aiEnabled').checked = s.aiEnabled;
   $('serverUrl').value = s.serverUrl;
   $('aiBox').hidden = !s.aiEnabled;
   return s;
 }
 $('tooltips').addEventListener('change', (e) => chrome.storage.local.set({ tooltips: e.target.checked }));
+$('autoClear').addEventListener('change', (e) => chrome.storage.local.set({ autoClear: e.target.checked }));
+// Needs a click (user gesture) so Chrome can ask once; background.js then registers the content scripts
+// for every site and starts them in tabs that are already open.
+$('allSites').addEventListener('change', async (e) => {
+  if (e.target.checked) e.target.checked = await chrome.permissions.request({ origins: ALL_SITES });
+  else await chrome.permissions.remove({ origins: ALL_SITES });
+});
 // Tooltips on open pages re-render in the new language right away (detector listens for storage changes)
 $('lang').addEventListener('change', (e) => chrome.storage.local.set({ lang: e.target.value }));
 $('aiEnabled').addEventListener('change', (e) => {
