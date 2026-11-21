@@ -62,6 +62,13 @@ function enterSite(host) {
 // ---------------- 2. per-tab status, added up over ALL frames (iframes!) -------------------
 // Every frame reports { errors, fields }. The toolbar badge shows the sum; the popup asks for the same sum.
 let statusQueue = Promise.resolve();
+
+/** Toolbar badge for one tab. The tab may already be closed or be a hidden preloaded page ("No tab with id"):
+ *  that is normal, so the rejection is swallowed instead of showing up as an error. */
+function setBadge(tabId, text) {
+  chrome.action.setBadgeText({ tabId, text }).catch(() => {});
+  if (text) chrome.action.setBadgeBackgroundColor({ tabId, color: '#d4a72c' }).catch(() => {});
+}
 function updateFrame(tabId, frameId, st) {
   statusQueue = statusQueue.then(async () => {
     const key = 'frames_' + tabId;
@@ -69,14 +76,13 @@ function updateFrame(tabId, frameId, st) {
     if (st.gone) delete data[frameId]; else data[frameId] = { errors: st.errors | 0, fields: st.fields | 0 };
     await chrome.storage.session.set({ [key]: data });
     const total = Object.values(data).reduce((n, f) => n + f.errors, 0);
-    chrome.action.setBadgeText({ tabId, text: total ? String(total) : '' });
-    chrome.action.setBadgeBackgroundColor({ tabId, color: '#d4a72c' });
+    setBadge(tabId, total ? String(total) : '');
   }).catch((e) => console.warn('[FormGuard] status update failed', e));
 }
 function resetTab(tabId) {
   statusQueue = statusQueue.then(async () => {
     await chrome.storage.session.remove('frames_' + tabId);
-    chrome.action.setBadgeText({ tabId, text: '' });
+    setBadge(tabId, '');
   }).catch(() => {});
 }
 async function tabStatus(tabId) {
